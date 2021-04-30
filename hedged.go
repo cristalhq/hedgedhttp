@@ -103,6 +103,7 @@ func runInPool(task func()) {
 
 			const cleanupDuration = 10 * time.Second
 			cleanupTicker := time.NewTicker(cleanupDuration)
+			defer cleanupTicker.Stop()
 
 			for {
 				select {
