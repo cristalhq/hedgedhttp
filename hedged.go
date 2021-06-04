@@ -9,7 +9,8 @@ import (
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Client {
+// Cancel requests after a successful return if cancel is true.
+func NewClient(timeout time.Duration, upto int, cancel bool, client *http.Client) *http.Client {
 	if client == nil {
 		client = &http.Client{
 			Timeout: 15 * time.Second,
@@ -23,6 +24,7 @@ func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Clien
 		rt:      client.Transport,
 		timeout: timeout,
 		upto:    upto,
+		cancel:  cancel,
 	}
 	return client
 }
@@ -30,7 +32,8 @@ func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Clien
 // NewRoundTripper returns a new http.RoundTripper which implements hedged requests pattern.
 // Given RoundTripper starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) http.RoundTripper {
+// Cancel requests after a successful return if cancel is true.
+func NewRoundTripper(timeout time.Duration, upto int, cancel bool, rt http.RoundTripper) http.RoundTripper {
 	if rt == nil {
 		rt = http.DefaultTransport
 	}
@@ -38,6 +41,7 @@ func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) http
 		rt:      rt,
 		timeout: timeout,
 		upto:    upto,
+		cancel:  cancel,
 	}
 	return hedged
 }
@@ -46,12 +50,17 @@ type hedgedTransport struct {
 	rt      http.RoundTripper
 	timeout time.Duration
 	upto    int
+	cancel  bool
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	ctx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-	req = req.WithContext(ctx)
+	ctx := req.Context()
+	if ht.cancel {
+		var cancel func()
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
 
 	var res interface{}
 	resultCh := make(chan interface{}, ht.upto)

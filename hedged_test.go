@@ -24,7 +24,7 @@ func TestUpto(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(10*time.Millisecond, upto, nil)
+	c := NewClient(10*time.Millisecond, upto, true, nil)
 	c.Do(req)
 
 	if gotRequests != upto {
@@ -47,7 +47,7 @@ func TestBestResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(10*time.Millisecond, 10, nil)
+	c := NewClient(10*time.Millisecond, 10, true, nil)
 
 	start := time.Now()
 	c.Do(req)
