@@ -1,9 +1,13 @@
 package hedgedhttp
 
 import (
+	"bytes"
+	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -55,6 +59,98 @@ func TestBestResponse(t *testing.T) {
 
 	if float64(passed) > float64(shortest)*1.2 {
 		t.Fatalf("want %v, got %v", shortest, passed)
+	}
+}
+
+func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
+	var handlerCount uint64 = 0
+	h := func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+			return
+		}
+
+		idx := atomic.AddUint64(&handlerCount, 1)
+		if idx == 5 {
+			w.WriteHeader(200)
+			_, err := w.Write([]byte("success"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = conn.Close() // emulate error by closing connection on client side
+	}
+	server := httptest.NewServer(http.HandlerFunc(h))
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewClient(10*time.Millisecond, 5, nil)
+	response, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != 200 {
+		t.Fatalf("Unexpected resp status code: %+v", response.StatusCode)
+	}
+	responseBytes, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(responseBytes, []byte("success")) {
+		t.Fatalf("Unexpected resp body %+v; as string: %+v", responseBytes, string(responseBytes))
+	}
+}
+
+func TestGetFailureAfterAllRetries(t *testing.T) {
+	h := func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = conn.Close() // emulate error by closing connection on client side
+	}
+	server := httptest.NewServer(http.HandlerFunc(h))
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewClient(1*time.Millisecond, 5, nil)
+	response, err := c.Do(req)
+	if err == nil {
+		t.Fatal(err)
+	}
+	if response != nil {
+		t.Fatalf("Unexpected response %+v", response)
+	}
+	if !strings.Contains(err.Error(), ""+
+		"error happened `EOF`\n"+
+		"\t and other error happened `EOF`\n"+
+		"\t and other error happened `EOF`\n"+
+		"\t and other error happened `EOF`\n"+
+		"\t and other error happened `EOF`",
+	) {
+		t.Fatalf("Unexpected err %+v", err)
 	}
 }
 

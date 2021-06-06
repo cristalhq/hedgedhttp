@@ -2,6 +2,7 @@ package hedgedhttp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -49,19 +50,22 @@ type hedgedTransport struct {
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	ctx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-	req = req.WithContext(ctx)
+	overallRequestCtx, overallRequestCancelFunc := context.WithCancel(req.Context())
+	defer overallRequestCancelFunc()
 
 	var res *http.Response
 	var err error
+	errorsHappened := 0
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
 Loop:
-	for sent := 0; ; sent++ {
+	for sent := 0; errorsHappened < ht.upto; sent++ {
 		if sent < ht.upto {
 			runInPool(func() {
+				subRequestCtx, subRequestCancelFunc := context.WithCancel(overallRequestCtx)
+				defer subRequestCancelFunc()
+				req := req.WithContext(subRequestCtx)
 				resp, err := ht.rt.RoundTrip(req)
 				if err != nil {
 					errorCh <- err
@@ -80,10 +84,12 @@ Loop:
 		select {
 		case res = <-resultCh:
 			break Loop
-		case err = <-errorCh:
+		case subRequestErr := <-errorCh:
+			err = encodeMultipleErrors(err, subRequestErr)
+			errorsHappened++
 			continue
-		case <-ctx.Done():
-			err = ctx.Err()
+		case <-overallRequestCtx.Done():
+			err = encodeMultipleErrors(err, overallRequestCtx.Err())
 		case <-time.After(ht.timeout):
 			continue
 		}
@@ -96,6 +102,15 @@ Loop:
 		return nil, err
 	}
 	panic("unreachable")
+}
+
+func encodeMultipleErrors(err error, subRequestErr error) error {
+	if err != nil {
+		err = fmt.Errorf("%v\n\t and other error happened `%w`", err, subRequestErr)
+	} else {
+		err = fmt.Errorf("error happened `%w`", subRequestErr)
+	}
+	return err
 }
 
 var taskQueue = make(chan func())
