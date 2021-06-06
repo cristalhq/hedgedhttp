@@ -58,6 +58,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
+Loop:
 	for sent := 0; ; sent++ {
 		if sent < ht.upto {
 			runInPool(func() {
@@ -69,10 +70,16 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 				}
 			})
 		}
+		// try to read result channel first, before blocking on all other channels
+		select {
+		case res = <-resultCh:
+			break Loop
+		default:
+		}
 
 		select {
 		case res = <-resultCh:
-			break
+			break Loop
 		case err = <-errorCh:
 			continue
 		case <-ctx.Done():
@@ -80,7 +87,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		case <-time.After(ht.timeout):
 			continue
 		}
-		break
+		break Loop
 	}
 	if res != nil {
 		return res, nil
