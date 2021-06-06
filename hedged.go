@@ -53,15 +53,17 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	var res interface{}
-	resultCh := make(chan interface{}, ht.upto)
+	var res *http.Response
+	var err error
+	resultCh := make(chan *http.Response, ht.upto)
+	errorCh := make(chan error, ht.upto)
 
 	for sent := 0; ; sent++ {
 		if sent < ht.upto {
 			runInPool(func() {
 				resp, err := ht.rt.RoundTrip(req)
 				if err != nil {
-					resultCh <- err
+					errorCh <- err
 				} else {
 					resultCh <- resp
 				}
@@ -70,23 +72,23 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 		select {
 		case res = <-resultCh:
+			break
+		case err = <-errorCh:
+			continue
 		case <-ctx.Done():
-			res = ctx.Err()
+			err = ctx.Err()
 		case <-time.After(ht.timeout):
 			continue
 		}
-		// either resultCh or ctx.Done is finished
 		break
 	}
-
-	switch res := res.(type) {
-	case error:
-		return nil, res
-	case *http.Response:
+	if res != nil {
 		return res, nil
-	default:
-		panic("unreachable")
 	}
+	if err != nil {
+		return nil, err
+	}
+	panic("unreachable")
 }
 
 var taskQueue = make(chan func())
