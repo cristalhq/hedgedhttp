@@ -57,6 +57,10 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	defer mainCtxCancel()
 
 	timeout := ht.timeout
+	if timeout == 0 {
+		timeout = time.Nanosecond // smallest possible timeout if not set
+	}
+
 	errOverall := &MultiError{}
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
@@ -76,7 +80,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			})
 		}
 
-		// all request sent - no timeout between request is needed anymore.
+		// all request sent - effectively disabling timeout between requests
 		if sent == ht.upto {
 			timeout = infiniteTimeout
 		}
@@ -102,11 +106,6 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 	case res := <-resultCh:
 		return res, nil
 	default:
-		// it's okay to return earlier, all the errors will be collected in a buffered channel
-		if timeout == 0 {
-			return nil, nil // nothing to wait, go next iteration
-		}
-
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 
