@@ -9,6 +9,8 @@ import (
 
 var errRequestTimeout = errors.New("hedgedhttp: request timeout")
 
+const waitForever = 30 * 24 * time.Hour
+
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
@@ -85,8 +87,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			}
 		}
 	}
-
-	return waitResult(mainCtx, resultCh, errorCh, err, -1)
+	return waitResult(mainCtx, resultCh, errorCh, err, waitForever)
 }
 
 func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, err error, timeout time.Duration) (*http.Response, error) {
@@ -95,16 +96,11 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 	case res := <-resultCh:
 		return res, nil
 	default:
-		var timer *time.Timer
 		if timeout == 0 {
-			return nil, nil
+			return nil, nil // nothing to wait, go next iteration
 		}
 
-		if timeout > 0 {
-			timer = time.NewTimer(timeout)
-		} else {
-			timer = time.NewTimer(30 * 24 * time.Hour) // something big and MOSTLY unreal
-		}
+		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 
 		select {
