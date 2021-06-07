@@ -2,6 +2,7 @@ package hedgedhttp
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -16,19 +17,17 @@ import (
 func TestUpto(t *testing.T) {
 	gotRequests := 0
 
-	h := func(w http.ResponseWriter, r *http.Request) {
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		gotRequests++
-		time.Sleep(time.Second)
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+		time.Sleep(100 * time.Millisecond)
+	})
 
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	const upto = 10
+	const upto = 7
 	_, _ = NewClient(10*time.Millisecond, upto, nil).Do(req)
 
 	if gotRequests != upto {
@@ -38,27 +37,25 @@ func TestUpto(t *testing.T) {
 
 func TestNoTimeout(t *testing.T) {
 	const sleep = 10 * time.Millisecond
-	const timeout time.Duration = 0
-	const upto = 10
 	var gotRequests = 0
 
-	h := func(w http.ResponseWriter, r *http.Request) {
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		gotRequests++
 		time.Sleep(sleep)
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+	})
 
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	const upto = 10
+
 	start := time.Now()
-	_, _ = NewClient(timeout, upto, nil).Do(req)
+	_, _ = NewClient(0, upto, nil).Do(req)
 	passed := time.Since(start)
 
-	want := float64(sleep) * 1.5
+	want := float64(sleep) * 1.5 // some coefficient
 	if float64(passed) > want {
 		t.Fatalf("want %v, got %v", time.Duration(want), passed)
 	}
@@ -67,14 +64,12 @@ func TestNoTimeout(t *testing.T) {
 	}
 }
 
-func TestFirst(t *testing.T) {
-	h := func(w http.ResponseWriter, r *http.Request) {
+func TestFirstIsOK(t *testing.T) {
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+	})
 
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,16 +81,14 @@ func TestFirst(t *testing.T) {
 }
 
 func TestBestResponse(t *testing.T) {
-	timeout := []time.Duration{time.Second, 100 * time.Millisecond, 20 * time.Millisecond}
+	timeout := []time.Duration{7000 * time.Millisecond, 100 * time.Millisecond, 20 * time.Millisecond}
 	shortest := shortestFrom(timeout)
 
-	h := func(w http.ResponseWriter, r *http.Request) {
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(timeout[rand.Int()%len(timeout)])
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+	})
 
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,75 +103,61 @@ func TestBestResponse(t *testing.T) {
 }
 
 func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
-	var handlerCount uint64 = 0
-	h := func(w http.ResponseWriter, r *http.Request) {
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
-			return
-		}
+	var gotRequests uint64
 
-		idx := atomic.AddUint64(&handlerCount, 1)
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		idx := atomic.AddUint64(&gotRequests, 1)
 		if idx == 5 {
-			w.WriteHeader(200)
-			_, err := w.Write([]byte("success"))
-			if err != nil {
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte("success")); err != nil {
 				t.Fatal(err)
 			}
 			return
 		}
 
-		conn, _, err := hj.Hijack()
+		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		_ = conn.Close() // emulate error by closing connection on client side
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+	})
 
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	response, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != 200 {
-		t.Fatalf("Unexpected resp status code: %+v", response.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Unexpected resp status code: %+v", resp.StatusCode)
 	}
-	responseBytes, err := ioutil.ReadAll(response.Body)
+
+	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(responseBytes, []byte("success")) {
-		t.Fatalf("Unexpected resp body %+v; as string: %+v", responseBytes, string(responseBytes))
+	if !bytes.Equal(respBytes, []byte("success")) {
+		t.Fatalf("Unexpected resp body %+v; as string: %+v", respBytes, string(respBytes))
 	}
 }
 
 func TestGetFailureAfterAllRetries(t *testing.T) {
 	const upto = 5
 
-	h := func(w http.ResponseWriter, r *http.Request) {
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
-			return
-		}
-		conn, _, err := hj.Hijack()
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		_ = conn.Close() // emulate error by closing connection on client side
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+	})
 
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	req, err := http.NewRequest("GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +174,69 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	if !strings.Contains(err.Error(), wantErrStr) {
 		t.Fatalf("Unexpected err %+v", err)
 	}
+}
+
+func TestHangAllExceptLast(t *testing.T) {
+	const upto = 5
+	var gotRequests uint64
+	blockCh := make(chan struct{})
+	defer close(blockCh)
+
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		gotRequests++
+		if gotRequests == upto {
+			time.Sleep(100 * time.Millisecond)
+			return
+		}
+		<-blockCh
+	})
+
+	req, err := http.NewRequest("GET", url, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := NewClient(10*time.Millisecond, upto, nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Unexpected resp status code: %+v", resp.StatusCode)
+	}
+}
+
+func TestCancelByClient(t *testing.T) {
+	blockCh := make(chan struct{})
+	defer close(blockCh)
+
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		<-blockCh
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	if err == nil {
+		t.Fatal(err)
+	}
+	if resp != nil {
+		t.Fatalf("Unexpected resp: %+v", resp)
+	}
+}
+
+func testServerURL(t *testing.T, h func(http.ResponseWriter, *http.Request)) string {
+	server := httptest.NewServer(http.HandlerFunc(h))
+	t.Cleanup(server.Close)
+	return server.URL
 }
 
 func shortestFrom(ts []time.Duration) time.Duration {
