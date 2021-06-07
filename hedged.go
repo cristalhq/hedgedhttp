@@ -9,7 +9,7 @@ import (
 
 var errRequestTimeout = errors.New("hedgedhttp: request timeout")
 
-const waitForever = 30 * 24 * time.Hour
+const waitForever = 30 * 24 * time.Hour // domain specific forever
 
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
