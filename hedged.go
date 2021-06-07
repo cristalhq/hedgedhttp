@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -54,7 +55,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	defer overallRequestCancelFunc()
 
 	var res *http.Response
-	var err error
+	err := &MultiError{}
 	errorsHappened := 0
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
@@ -85,11 +86,11 @@ Loop:
 		case res = <-resultCh:
 			break Loop
 		case subRequestErr := <-errorCh:
-			err = encodeMultipleErrors(err, subRequestErr)
+			err.Errors = append(err.Errors, subRequestErr)
 			errorsHappened++
 			continue
 		case <-overallRequestCtx.Done():
-			err = encodeMultipleErrors(err, overallRequestCtx.Err())
+			err.Errors = append(err.Errors, overallRequestCtx.Err())
 		case <-time.After(ht.timeout):
 			continue
 		}
@@ -98,19 +99,10 @@ Loop:
 	if res != nil {
 		return res, nil
 	}
-	if err != nil {
+	if err.ErrorOrNil() != nil {
 		return nil, err
 	}
 	panic("unreachable")
-}
-
-func encodeMultipleErrors(err error, subRequestErr error) error {
-	if err != nil {
-		err = fmt.Errorf("%v\n\t and other error happened `%w`", err, subRequestErr)
-	} else {
-		err = fmt.Errorf("error happened `%w`", subRequestErr)
-	}
-	return err
 }
 
 var taskQueue = make(chan func())
@@ -140,4 +132,50 @@ func runInPool(task func()) {
 			}
 		}()
 	}
+}
+
+// MultiError is an error type to track multiple errors. This is used to
+// accumulate errors in cases and return them as a single "error".
+// Insiper by https://github.com/hashicorp/go-multierror
+type MultiError struct {
+	Errors        []error
+	ErrorFormatFn ErrorFormatFunc
+}
+
+func (e *MultiError) Error() string {
+	fn := e.ErrorFormatFn
+	if fn == nil {
+		fn = listFormatFunc
+	}
+	return fn(e.Errors)
+}
+
+func (e *MultiError) String() string {
+	return fmt.Sprintf("*%#v", e.Errors)
+}
+
+// ErrorOrNil returns an error if there are some.
+func (e *MultiError) ErrorOrNil() error {
+	switch {
+	case e == nil || len(e.Errors) == 0:
+		return nil
+	default:
+		return e
+	}
+}
+
+// ErrorFormatFunc is called by MultiError to return the list of errors as a string.
+type ErrorFormatFunc func([]error) string
+
+func listFormatFunc(es []error) string {
+	if len(es) == 1 {
+		return fmt.Sprintf("1 error occurred:\n\t* %s\n\n", es[0])
+	}
+
+	points := make([]string, len(es))
+	for i, err := range es {
+		points[i] = fmt.Sprintf("* %s", err)
+	}
+
+	return fmt.Sprintf("%d errors occurred:\n\t%s\n\n", len(es), strings.Join(points, "\n\t"))
 }

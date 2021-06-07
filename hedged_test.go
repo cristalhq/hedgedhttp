@@ -143,13 +143,9 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	if response != nil {
 		t.Fatalf("Unexpected response %+v", response)
 	}
-	if !strings.Contains(err.Error(), ""+
-		"error happened `EOF`\n"+
-		"\t and other error happened `EOF`\n"+
-		"\t and other error happened `EOF`\n"+
-		"\t and other error happened `EOF`\n"+
-		"\t and other error happened `EOF`",
-	) {
+
+	wantErrStr := `5 errors occurred:`
+	if !strings.Contains(err.Error(), wantErrStr) {
 		t.Fatalf("Unexpected err %+v", err)
 	}
 }
