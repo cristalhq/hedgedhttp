@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const infiniteTimeout = 30 * 24 * time.Hour // domain specific infinite
+
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
@@ -54,6 +56,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
 	defer mainCtxCancel()
 
+	timeout := ht.timeout
 	errOverall := &MultiError{}
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
@@ -73,7 +76,10 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			})
 		}
 
-		resp, err := waitResult(mainCtx, resultCh, errorCh, ht.timeout)
+		if sent == ht.upto {
+			timeout = infiniteTimeout
+		}
+		resp, err := waitResult(mainCtx, resultCh, errorCh, timeout)
 
 		switch {
 		case resp != nil:
