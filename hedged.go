@@ -19,15 +19,9 @@ func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Clien
 			Timeout: 5 * time.Second,
 		}
 	}
-	if client.Transport == nil {
-		client.Transport = http.DefaultTransport
-	}
 
-	client.Transport = &hedgedTransport{
-		rt:      client.Transport,
-		timeout: timeout,
-		upto:    upto,
-	}
+	client.Transport = NewRoundTripper(timeout, upto, client.Transport)
+
 	return client
 }
 
