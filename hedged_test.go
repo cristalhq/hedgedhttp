@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -110,47 +109,6 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 	}
 	if !bytes.Equal(responseBytes, []byte("success")) {
 		t.Fatalf("Unexpected resp body %+v; as string: %+v", responseBytes, string(responseBytes))
-	}
-}
-
-func TestGetFailureAfterAllRetries(t *testing.T) {
-	h := func(w http.ResponseWriter, r *http.Request) {
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			http.Error(w, "webserver doesn't support hijacking", http.StatusInternalServerError)
-			return
-		}
-		conn, _, err := hj.Hijack()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		_ = conn.Close() // emulate error by closing connection on client side
-	}
-	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
-
-	req, err := http.NewRequest("GET", server.URL, http.NoBody)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	c := NewClient(1*time.Millisecond, 5, nil)
-	response, err := c.Do(req)
-	if err == nil {
-		t.Fatal(err)
-	}
-	if response != nil {
-		t.Fatalf("Unexpected response %+v", response)
-	}
-	if !strings.Contains(err.Error(), ""+
-		"error happened `EOF`\n"+
-		"\t and other error happened `EOF`\n"+
-		"\t and other error happened `EOF`\n"+
-		"\t and other error happened `EOF`\n"+
-		"\t and other error happened `EOF`",
-	) {
-		t.Fatalf("Unexpected err %+v", err)
 	}
 }
 
