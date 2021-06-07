@@ -2,6 +2,8 @@ package hedgedhttp
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -13,8 +15,7 @@ import (
 )
 
 func TestUpto(t *testing.T) {
-	const upto = 10
-	var gotRequests = 0
+	gotRequests := 0
 
 	h := func(w http.ResponseWriter, r *http.Request) {
 		gotRequests++
@@ -28,11 +29,60 @@ func TestUpto(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(10*time.Millisecond, upto, nil)
-	c.Do(req)
+	const upto = 10
+	_, _ = NewClient(10*time.Millisecond, upto, nil).Do(req)
 
 	if gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
+	}
+}
+
+func TestNoTimeout(t *testing.T) {
+	const sleep = 10 * time.Millisecond
+	const timeout time.Duration = 0
+	const upto = 10
+	var gotRequests = 0
+
+	h := func(w http.ResponseWriter, r *http.Request) {
+		gotRequests++
+		time.Sleep(sleep)
+	}
+	server := httptest.NewServer(http.HandlerFunc(h))
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	_, _ = NewClient(timeout, upto, nil).Do(req)
+	passed := time.Since(start)
+
+	want := float64(sleep) * 1.5
+	if float64(passed) > want {
+		t.Fatalf("want %v, got %v", time.Duration(want), passed)
+	}
+	if gotRequests != upto {
+		t.Fatalf("want %v, got %v", upto, gotRequests)
+	}
+}
+
+func TestFirst(t *testing.T) {
+	h := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+	server := httptest.NewServer(http.HandlerFunc(h))
+	t.Cleanup(server.Close)
+
+	req, err := http.NewRequest("GET", server.URL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewClient(10*time.Millisecond, 10, nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -51,10 +101,8 @@ func TestBestResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(10*time.Millisecond, 10, nil)
-
 	start := time.Now()
-	c.Do(req)
+	_, _ = NewClient(10*time.Millisecond, 10, nil).Do(req)
 	passed := time.Since(start)
 
 	if float64(passed) > float64(shortest)*1.2 {
@@ -96,8 +144,7 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(10*time.Millisecond, 5, nil)
-	response, err := c.Do(req)
+	response, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +161,9 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 }
 
 func TestGetFailureAfterAllRetries(t *testing.T) {
+	const upto = 5
+	got := 0
+
 	h := func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
@@ -125,7 +175,11 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = conn.Close() // emulate error by closing connection on client side
+		// hang one requet forever
+		if got != upto-1 {
+			got++
+			_ = conn.Close() // emulate error by closing connection on client side
+		}
 	}
 	server := httptest.NewServer(http.HandlerFunc(h))
 	t.Cleanup(server.Close)
@@ -135,17 +189,19 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(1*time.Millisecond, 5, nil)
-	response, err := c.Do(req)
+	resp, err := NewClient(time.Millisecond, upto, nil).Do(req)
 	if err == nil {
 		t.Fatal(err)
 	}
-	if response != nil {
-		t.Fatalf("Unexpected response %+v", response)
+	if resp != nil {
+		t.Fatalf("Unexpected response %+v", resp)
 	}
 
-	wantErrStr := `5 errors occurred:`
+	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto) // +1 because of context.canceled
 	if !strings.Contains(err.Error(), wantErrStr) {
+		t.Fatalf("Unexpected err %+v", err)
+	}
+	if !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
 		t.Fatalf("Unexpected err %+v", err)
 	}
 }

@@ -8,13 +8,15 @@ import (
 	"time"
 )
 
+const waitForever = 30 * 24 * time.Hour // domain specific forever
+
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
 func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Client {
 	if client == nil {
 		client = &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 5 * time.Second,
 		}
 	}
 	if client.Transport == nil {
@@ -51,58 +53,91 @@ type hedgedTransport struct {
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	overallRequestCtx, overallRequestCancelFunc := context.WithCancel(req.Context())
-	defer overallRequestCancelFunc()
+	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
+	defer mainCtxCancel()
 
-	var res *http.Response
-	err := &MultiError{}
-	errorsHappened := 0
+	errOverall := &MultiError{}
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
-Loop:
-	for sent := 0; errorsHappened < ht.upto; sent++ {
-		if sent < ht.upto {
-			runInPool(func() {
-				subRequestCtx, subRequestCancelFunc := context.WithCancel(overallRequestCtx)
-				defer subRequestCancelFunc()
-				req := req.WithContext(subRequestCtx)
-				resp, err := ht.rt.RoundTrip(req)
-				if err != nil {
-					errorCh <- err
-				} else {
-					resultCh <- resp
-				}
-			})
+	for sent := 0; sent < ht.upto; sent++ {
+		runInPool(func() {
+			req, cancel := reqWithCtx(req, mainCtx)
+			defer cancel()
+
+			resp, err := ht.rt.RoundTrip(req)
+			if err != nil {
+				errorCh <- err
+			} else {
+				resultCh <- resp
+			}
+		})
+
+		resp, err := waitResult(mainCtx, resultCh, errorCh, ht.timeout)
+
+		switch {
+		case resp != nil:
+			return resp, nil
+		case mainCtx.Err() != nil:
+			return nil, mainCtx.Err()
+		case err != nil:
+			errOverall.Errors = append(errOverall.Errors, err)
 		}
-		// try to read result channel first, before blocking on all other channels
-		select {
-		case res = <-resultCh:
-			break Loop
-		default:
+	}
+
+	resp, err := waitResult(mainCtx, resultCh, errorCh, waitForever)
+	if err != nil {
+		return nil, combineErrors(errOverall, err, errorCh)
+	}
+	return resp, nil
+}
+
+func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, timeout time.Duration) (*http.Response, error) {
+	// try to read result first before blocking on all other channels
+	select {
+	case res := <-resultCh:
+		return res, nil
+	default:
+		// it's okay to return earlier, all the errors will be collected in a buffered channel
+		if timeout == 0 {
+			return nil, nil // nothing to wait, go next iteration
 		}
 
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+
 		select {
-		case res = <-resultCh:
-			break Loop
-		case subRequestErr := <-errorCh:
-			err.Errors = append(err.Errors, subRequestErr)
-			errorsHappened++
-			continue
-		case <-overallRequestCtx.Done():
-			err.Errors = append(err.Errors, overallRequestCtx.Err())
-		case <-time.After(ht.timeout):
-			continue
+		case res := <-resultCh:
+			return res, nil
+
+		case reqErr := <-errorCh:
+			return nil, reqErr
+
+		case <-ctx.Done():
+			return nil, ctx.Err()
+
+		case <-timer.C:
+			return nil, nil // it's not a request timeout, it's timeout BETWEEN consecutive requests
 		}
-		break Loop
 	}
-	if res != nil {
-		return res, nil
+}
+
+func reqWithCtx(r *http.Request, ctx context.Context) (*http.Request, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	req := r.WithContext(ctx)
+	return req, cancel
+}
+
+func combineErrors(errOverall *MultiError, err error, ch <-chan error) *MultiError {
+	for {
+		select {
+		case errCh := <-ch:
+			errOverall.Errors = append(errOverall.Errors, errCh)
+		default:
+			errOverall.Errors = append(errOverall.Errors, err)
+			return errOverall
+		}
 	}
-	if err.ErrorOrNil() != nil {
-		return nil, err
-	}
-	panic("unreachable")
 }
 
 var taskQueue = make(chan func())
