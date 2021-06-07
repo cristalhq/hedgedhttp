@@ -2,7 +2,6 @@ package hedgedhttp
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -162,7 +161,6 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 
 func TestGetFailureAfterAllRetries(t *testing.T) {
 	const upto = 5
-	got := 0
 
 	h := func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)
@@ -175,11 +173,7 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// hang one requet forever
-		if got != upto-1 {
-			got++
-			_ = conn.Close() // emulate error by closing connection on client side
-		}
+		_ = conn.Close() // emulate error by closing connection on client side
 	}
 	server := httptest.NewServer(http.HandlerFunc(h))
 	t.Cleanup(server.Close)
@@ -197,11 +191,8 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatalf("Unexpected response %+v", resp)
 	}
 
-	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto) // +1 because of context.canceled
+	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto)
 	if !strings.Contains(err.Error(), wantErrStr) {
-		t.Fatalf("Unexpected err %+v", err)
-	}
-	if !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
 		t.Fatalf("Unexpected err %+v", err)
 	}
 }

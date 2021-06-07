@@ -56,6 +56,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
 	defer mainCtxCancel()
 
+	gotErrors := 0
 	errOverall := &MultiError{}
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
@@ -81,8 +82,13 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		case mainCtx.Err() != nil:
 			return nil, mainCtx.Err()
 		case err != nil:
+			gotErrors++
 			errOverall.Errors = append(errOverall.Errors, err)
 		}
+	}
+
+	if gotErrors == ht.upto {
+		return nil, errOverall
 	}
 
 	resp, err := waitResult(mainCtx, resultCh, errorCh, waitForever)
