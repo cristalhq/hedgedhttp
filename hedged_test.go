@@ -161,6 +161,9 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 }
 
 func TestGetFailureAfterAllRetries(t *testing.T) {
+	const upto = 5
+	got := 0
+
 	h := func(w http.ResponseWriter, r *http.Request) {
 		hj, ok := w.(http.Hijacker)
 		if !ok {
@@ -172,7 +175,11 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = conn.Close() // emulate error by closing connection on client side
+		// hang one requet forever
+		if got != upto-1 {
+			got++
+			_ = conn.Close() // emulate error by closing connection on client side
+		}
 	}
 	server := httptest.NewServer(http.HandlerFunc(h))
 	t.Cleanup(server.Close)
@@ -182,7 +189,6 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const upto = 5
 	resp, err := NewClient(time.Millisecond, upto, nil).Do(req)
 	if err == nil {
 		t.Fatal(err)
@@ -191,12 +197,12 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatalf("Unexpected response %+v", resp)
 	}
 
-	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto+1) // +1 because of context.canceled
+	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto) // +1 because of context.canceled
 	if !strings.Contains(err.Error(), wantErrStr) {
-		t.Logf("Unexpected err %+v", err)
+		t.Fatalf("Unexpected err %+v", err)
 	}
 	if !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
-		t.Logf("Unexpected err %+v", err)
+		t.Fatalf("Unexpected err %+v", err)
 	}
 }
 
