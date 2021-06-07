@@ -47,8 +47,7 @@ type hedgedTransport struct {
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
-	defer mainCtxCancel()
+	mainCtx := req.Context()
 
 	timeout := ht.timeout
 	if timeout == 0 {
