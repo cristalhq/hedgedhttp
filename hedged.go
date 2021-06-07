@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const waitForever = 30 * 24 * time.Hour // domain specific forever
+const infiniteTimeout = 30 * 24 * time.Hour // domain specific infinite
 
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
@@ -19,15 +19,9 @@ func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Clien
 			Timeout: 5 * time.Second,
 		}
 	}
-	if client.Transport == nil {
-		client.Transport = http.DefaultTransport
-	}
 
-	client.Transport = &hedgedTransport{
-		rt:      client.Transport,
-		timeout: timeout,
-		upto:    upto,
-	}
+	client.Transport = NewRoundTripper(timeout, upto, client.Transport)
+
 	return client
 }
 
@@ -56,24 +50,35 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
 	defer mainCtxCancel()
 
+	timeout := ht.timeout
+	if timeout == 0 {
+		timeout = time.Nanosecond // smallest possible timeout if not set
+	}
+
 	errOverall := &MultiError{}
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
-	for sent := 0; sent < ht.upto; sent++ {
-		runInPool(func() {
-			req, cancel := reqWithCtx(req, mainCtx)
-			defer cancel()
+	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
+		if sent < ht.upto {
+			runInPool(func() {
+				req, cancel := reqWithCtx(req, mainCtx)
+				defer cancel()
 
-			resp, err := ht.rt.RoundTrip(req)
-			if err != nil {
-				errorCh <- err
-			} else {
-				resultCh <- resp
-			}
-		})
+				resp, err := ht.rt.RoundTrip(req)
+				if err != nil {
+					errorCh <- err
+				} else {
+					resultCh <- resp
+				}
+			})
+		}
 
-		resp, err := waitResult(mainCtx, resultCh, errorCh, ht.timeout)
+		// all request sent - effectively disabling timeout between requests
+		if sent == ht.upto {
+			timeout = infiniteTimeout
+		}
+		resp, err := waitResult(mainCtx, resultCh, errorCh, timeout)
 
 		switch {
 		case resp != nil:
@@ -85,11 +90,8 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	}
 
-	resp, err := waitResult(mainCtx, resultCh, errorCh, waitForever)
-	if err != nil {
-		return nil, combineErrors(errOverall, err, errorCh)
-	}
-	return resp, nil
+	// all request have returned errors
+	return nil, errOverall
 }
 
 func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, timeout time.Duration) (*http.Response, error) {
@@ -98,11 +100,6 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 	case res := <-resultCh:
 		return res, nil
 	default:
-		// it's okay to return earlier, all the errors will be collected in a buffered channel
-		if timeout == 0 {
-			return nil, nil // nothing to wait, go next iteration
-		}
-
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
 
@@ -126,18 +123,6 @@ func reqWithCtx(r *http.Request, ctx context.Context) (*http.Request, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	req := r.WithContext(ctx)
 	return req, cancel
-}
-
-func combineErrors(errOverall *MultiError, err error, ch <-chan error) *MultiError {
-	for {
-		select {
-		case errCh := <-ch:
-			errOverall.Errors = append(errOverall.Errors, errCh)
-		default:
-			errOverall.Errors = append(errOverall.Errors, err)
-			return errOverall
-		}
-	}
 }
 
 var taskQueue = make(chan func())
