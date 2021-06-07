@@ -98,7 +98,7 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 	case res := <-resultCh:
 		return res, nil
 	default:
-		// it's okay to retyrn earlier, all the errors will be collected in a buffered channel
+		// it's okay to return earlier, all the errors will be collected in a buffered channel
 		if timeout == 0 {
 			return nil, nil // nothing to wait, go next iteration
 		}
