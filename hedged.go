@@ -76,6 +76,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			})
 		}
 
+		// all request sent - no timeout between request is needed anymore.
 		if sent == ht.upto {
 			timeout = infiniteTimeout
 		}
