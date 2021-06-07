@@ -2,6 +2,7 @@ package hedgedhttp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -49,44 +50,67 @@ type hedgedTransport struct {
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	ctx, cancel := context.WithCancel(req.Context())
-	defer cancel()
-	req = req.WithContext(ctx)
+	overallRequestCtx, overallRequestCancelFunc := context.WithCancel(req.Context())
+	defer overallRequestCancelFunc()
 
-	var res interface{}
-	resultCh := make(chan interface{}, ht.upto)
+	var res *http.Response
+	var err error
+	errorsHappened := 0
+	resultCh := make(chan *http.Response, ht.upto)
+	errorCh := make(chan error, ht.upto)
 
-	for sent := 0; ; sent++ {
+Loop:
+	for sent := 0; errorsHappened < ht.upto; sent++ {
 		if sent < ht.upto {
 			runInPool(func() {
+				subRequestCtx, subRequestCancelFunc := context.WithCancel(overallRequestCtx)
+				defer subRequestCancelFunc()
+				req := req.WithContext(subRequestCtx)
 				resp, err := ht.rt.RoundTrip(req)
 				if err != nil {
-					resultCh <- err
+					errorCh <- err
 				} else {
 					resultCh <- resp
 				}
 			})
 		}
+		// try to read result channel first, before blocking on all other channels
+		select {
+		case res = <-resultCh:
+			break Loop
+		default:
+		}
 
 		select {
 		case res = <-resultCh:
-		case <-ctx.Done():
-			res = ctx.Err()
+			break Loop
+		case subRequestErr := <-errorCh:
+			err = encodeMultipleErrors(err, subRequestErr)
+			errorsHappened++
+			continue
+		case <-overallRequestCtx.Done():
+			err = encodeMultipleErrors(err, overallRequestCtx.Err())
 		case <-time.After(ht.timeout):
 			continue
 		}
-		// either resultCh or ctx.Done is finished
-		break
+		break Loop
 	}
-
-	switch res := res.(type) {
-	case error:
-		return nil, res
-	case *http.Response:
+	if res != nil {
 		return res, nil
-	default:
-		panic("unreachable")
 	}
+	if err != nil {
+		return nil, err
+	}
+	panic("unreachable")
+}
+
+func encodeMultipleErrors(err error, subRequestErr error) error {
+	if err != nil {
+		err = fmt.Errorf("%v\n\t and other error happened `%w`", err, subRequestErr)
+	} else {
+		err = fmt.Errorf("error happened `%w`", subRequestErr)
+	}
+	return err
 }
 
 var taskQueue = make(chan func())
