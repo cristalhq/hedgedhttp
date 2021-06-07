@@ -57,7 +57,6 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
 	defer mainCtxCancel()
 
-	var err error
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
@@ -74,28 +73,26 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			}
 		})
 
-		resp, reqErr := waitResult(mainCtx, resultCh, errorCh, err, ht.timeout)
+		// TODO: do not skip error, collect them together
+		resp, _ := waitResult(mainCtx, resultCh, errorCh, ht.timeout)
 
 		switch {
 		case resp != nil:
 			return resp, nil
 		case mainCtx.Err() != nil:
 			return nil, mainCtx.Err()
-		case err != nil:
-			if err == nil && reqErr != errRequestTimeout {
-				err = reqErr
-			}
 		}
 	}
-	return waitResult(mainCtx, resultCh, errorCh, err, waitForever)
+	return waitResult(mainCtx, resultCh, errorCh, waitForever)
 }
 
-func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, err error, timeout time.Duration) (*http.Response, error) {
+func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, timeout time.Duration) (*http.Response, error) {
 	// try to read result first before blocking on all other channels
 	select {
 	case res := <-resultCh:
 		return res, nil
 	default:
+		// it's okay to retyrn earlier, all the errors will be collected in a buffered channel
 		if timeout == 0 {
 			return nil, nil // nothing to wait, go next iteration
 		}
@@ -108,15 +105,9 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 			return res, nil
 
 		case reqErr := <-errorCh:
-			if err != nil {
-				return nil, err
-			}
 			return nil, reqErr
 
 		case <-ctx.Done():
-			if err != nil {
-				return nil, err
-			}
 			return nil, ctx.Err()
 
 		case <-timer.C:
