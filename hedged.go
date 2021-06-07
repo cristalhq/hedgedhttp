@@ -16,7 +16,7 @@ const waitForever = 30 * 24 * time.Hour // domain specific forever
 func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Client {
 	if client == nil {
 		client = &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 5 * time.Second,
 		}
 	}
 	if client.Transport == nil {
