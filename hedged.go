@@ -2,13 +2,11 @@ package hedgedhttp
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 )
-
-var errRequestTimeout = errors.New("hedgedhttp: request timeout")
 
 const waitForever = 30 * 24 * time.Hour // domain specific forever
 
@@ -58,7 +56,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	mainCtx, mainCtxCancel := context.WithCancel(req.Context())
 	defer mainCtxCancel()
 
-  errOverall := &MultiError{}
+	errOverall := &MultiError{}
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
@@ -75,7 +73,6 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			}
 		})
 
-		// TODO: do not skip error, collect them together
 		resp, err := waitResult(mainCtx, resultCh, errorCh, ht.timeout)
 
 		switch {
@@ -83,18 +80,16 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			return resp, nil
 		case mainCtx.Err() != nil:
 			return nil, mainCtx.Err()
-    case err != nil:
-      if errOverall.ErrorOrNil() == nil && err != errRequestTimeout {
-        errOverall.Errors = append(errOverall.Errors, err)
-			}
+		case err != nil:
+			errOverall.Errors = append(errOverall.Errors, err)
 		}
 	}
-  resp, err := waitResult(mainCtx, resultCh, errorCh, waitForever)
-  if err != nil {
-    errOverall.Errors = append(errOverall.Errors, err)
-    return errOverall
-  }
-  return resp, nil
+
+	resp, err := waitResult(mainCtx, resultCh, errorCh, waitForever)
+	if err != nil {
+		return nil, combineErrors(errOverall, err, errorCh)
+	}
+	return resp, nil
 }
 
 func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, timeout time.Duration) (*http.Response, error) {
@@ -122,7 +117,7 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 			return nil, ctx.Err()
 
 		case <-timer.C:
-			return nil, errRequestTimeout
+			return nil, nil // it's not a request timeout, it's timeout BETWEEN consecutive requests
 		}
 	}
 }
@@ -131,6 +126,18 @@ func reqWithCtx(r *http.Request, ctx context.Context) (*http.Request, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	req := r.WithContext(ctx)
 	return req, cancel
+}
+
+func combineErrors(errOverall *MultiError, err error, ch <-chan error) *MultiError {
+	for {
+		select {
+		case errCh := <-ch:
+			errOverall.Errors = append(errOverall.Errors, errCh)
+		default:
+			errOverall.Errors = append(errOverall.Errors, err)
+			return errOverall
+		}
+	}
 }
 
 var taskQueue = make(chan func())

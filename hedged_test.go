@@ -2,10 +2,13 @@ package hedgedhttp
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -179,18 +182,21 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := NewClient(1*time.Millisecond, 5, nil)
-	response, err := c.Do(req)
+	const upto = 5
+	resp, err := NewClient(time.Millisecond, upto, nil).Do(req)
 	if err == nil {
 		t.Fatal(err)
 	}
-	if response != nil {
-		t.Fatalf("Unexpected response %+v", response)
+	if resp != nil {
+		t.Fatalf("Unexpected response %+v", resp)
 	}
 
-	wantErrStr := `5 errors occurred:`
+	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto+1) // +1 because of context.canceled
 	if !strings.Contains(err.Error(), wantErrStr) {
-		t.Fatalf("Unexpected err %+v", err)
+		t.Logf("Unexpected err %+v", err)
+	}
+	if !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Logf("Unexpected err %+v", err)
 	}
 }
 
