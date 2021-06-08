@@ -61,15 +61,13 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultIdx := -1
 	cancels := make([]func(), ht.upto)
 
-	defer func() {
-		runInPool(func() {
-			for i, cancel := range cancels {
-				if i != resultIdx && cancel != nil {
-					cancel()
-				}
+	defer runInPool(func() {
+		for i, cancel := range cancels {
+			if i != resultIdx && cancel != nil {
+				cancel()
 			}
-		})
-	}()
+		}
+	})
 
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
 		if sent < ht.upto {
