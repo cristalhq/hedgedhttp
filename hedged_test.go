@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -67,6 +68,7 @@ func TestNoTimeout(t *testing.T) {
 func TestFirstIsOK(t *testing.T) {
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
 	})
 
 	req, err := http.NewRequest("GET", url, http.NoBody)
@@ -74,9 +76,18 @@ func TestFirstIsOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = NewClient(10*time.Millisecond, 10, nil).Do(req)
+	resp, err := NewClient(10*time.Millisecond, 10, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "ok" {
+		t.Fatalf("want ok, got %s", string(body))
 	}
 }
 
@@ -88,7 +99,10 @@ func TestBestResponse(t *testing.T) {
 		time.Sleep(timeout[rand.Int()%len(timeout)])
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
