@@ -59,7 +59,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	errorCh := make(chan error, ht.upto)
 
 	resultIdx := -1
-	cancels := make([]func(), ht.upto+1)
+	cancels := make([]func(), ht.upto)
 
 	defer func() {
 		runInPool(func() {
