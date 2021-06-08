@@ -55,15 +55,16 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	errOverall := &MultiError{}
-	resultCh := make(chan *http.Response, ht.upto)
+	resultCh := make(chan *indexedResp, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
+	resultIdx := -1
 	cancels := make([]func(), ht.upto+1)
 
 	defer func() {
 		runInPool(func() {
-			for _, cancel := range cancels {
-				if cancel != nil {
+			for i, cancel := range cancels {
+				if i != resultIdx && cancel != nil {
 					cancel()
 				}
 			}
@@ -72,17 +73,16 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
 		if sent < ht.upto {
-			runInPool(func() {
-				sent := sent
-				req, cancel := reqWithCtx(req, mainCtx)
-				cancels[sent] = cancel
+			idx := sent
+			subReq, cancel := reqWithCtx(req, mainCtx)
+			cancels[idx] = cancel
 
-				resp, err := ht.rt.RoundTrip(req)
+			runInPool(func() {
+				resp, err := ht.rt.RoundTrip(subReq)
 				if err != nil {
 					errorCh <- err
 				} else {
-					resultCh <- resp
-					cancels[sent] = nil
+					resultCh <- &indexedResp{idx, resp}
 				}
 			})
 		}
@@ -95,7 +95,8 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 		switch {
 		case resp != nil:
-			return resp, nil
+			resultIdx = resp.Index
+			return resp.Resp, nil
 		case mainCtx.Err() != nil:
 			return nil, mainCtx.Err()
 		case err != nil:
@@ -107,7 +108,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return nil, errOverall
 }
 
-func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-chan error, timeout time.Duration) (*http.Response, error) {
+func waitResult(ctx context.Context, resultCh <-chan *indexedResp, errorCh <-chan error, timeout time.Duration) (*indexedResp, error) {
 	// try to read result first before blocking on all other channels
 	select {
 	case res := <-resultCh:
@@ -130,6 +131,11 @@ func waitResult(ctx context.Context, resultCh <-chan *http.Response, errorCh <-c
 			return nil, nil // it's not a request timeout, it's timeout BETWEEN consecutive requests
 		}
 	}
+}
+
+type indexedResp struct {
+	Index int
+	Resp  *http.Response
 }
 
 func reqWithCtx(r *http.Request, ctx context.Context) (*http.Request, func()) {
