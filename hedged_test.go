@@ -111,7 +111,7 @@ func TestBestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	_, err = NewClient(10*time.Millisecond, 5, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
