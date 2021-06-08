@@ -63,14 +63,14 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	cancelCh := make(chan func(), ht.upto)
 	defer func() {
 		// close all sent request asynchronous
-		go func() {
+		runInPool(func() {
 			// if we're here then there will be no more requests
 			got := atomic.LoadInt64(&waitingFor)
 			for i := int64(0); i < got; i++ {
 				c := <-cancelCh
 				c()
 			}
-		}()
+		})
 	}()
 
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
