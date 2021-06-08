@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,10 +15,10 @@ import (
 )
 
 func TestUpto(t *testing.T) {
-	gotRequests := 0
+	var gotRequests int64
 
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
-		gotRequests++
+		atomic.AddInt64(&gotRequests, 1)
 		time.Sleep(100 * time.Millisecond)
 	})
 
@@ -31,17 +30,17 @@ func TestUpto(t *testing.T) {
 	const upto = 7
 	_, _ = NewClient(10*time.Millisecond, upto, nil).Do(req)
 
-	if gotRequests != upto {
+	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
 	}
 }
 
 func TestNoTimeout(t *testing.T) {
 	const sleep = 10 * time.Millisecond
-	var gotRequests = 0
+	var gotRequests int64
 
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
-		gotRequests++
+		atomic.AddInt64(&gotRequests, 1)
 		time.Sleep(sleep)
 	})
 
@@ -60,7 +59,7 @@ func TestNoTimeout(t *testing.T) {
 	if float64(passed) > want {
 		t.Fatalf("want %v, got %v", time.Duration(want), passed)
 	}
-	if gotRequests != upto {
+	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
 	}
 }
@@ -92,12 +91,18 @@ func TestFirstIsOK(t *testing.T) {
 }
 
 func TestBestResponse(t *testing.T) {
-	timeout := []time.Duration{7000 * time.Millisecond, 100 * time.Millisecond, 20 * time.Millisecond}
-	shortest := shortestFrom(timeout)
+	const shortest = 20 * time.Millisecond
+	timeouts := [...]time.Duration{30 * shortest, 5 * shortest, shortest, shortest, shortest}
+	timeoutCh := make(chan time.Duration, len(timeouts))
+	for _, t := range timeouts {
+		timeoutCh <- t
+	}
 
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(timeout[rand.Int()%len(timeout)])
+		time.Sleep(<-timeoutCh)
 	})
+
+	start := time.Now()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -106,12 +111,13 @@ func TestBestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	start := time.Now()
-	_, _ = NewClient(10*time.Millisecond, 10, nil).Do(req)
+	_, err = NewClient(10*time.Millisecond, 5, nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	passed := time.Since(start)
 
-	if float64(passed) > float64(shortest)*1.2 {
+	if float64(passed) > float64(shortest)*2.5 {
 		t.Fatalf("want %v, got %v", shortest, passed)
 	}
 }
@@ -197,8 +203,8 @@ func TestHangAllExceptLast(t *testing.T) {
 	defer close(blockCh)
 
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
-		gotRequests++
-		if gotRequests == upto {
+		idx := atomic.AddUint64(&gotRequests, 1)
+		if idx == upto {
 			time.Sleep(100 * time.Millisecond)
 			return
 		}
