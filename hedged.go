@@ -55,7 +55,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	errOverall := &MultiError{}
-	resultCh := make(chan *indexedResp, ht.upto)
+	resultCh := make(chan indexedResp, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
 	resultIdx := -1
@@ -82,7 +82,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 				if err != nil {
 					errorCh <- err
 				} else {
-					resultCh <- &indexedResp{idx, resp}
+					resultCh <- indexedResp{idx, resp}
 				}
 			})
 		}
@@ -94,7 +94,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		resp, err := waitResult(mainCtx, resultCh, errorCh, timeout)
 
 		switch {
-		case resp != nil:
+		case resp.Resp != nil:
 			resultIdx = resp.Index
 			return resp.Resp, nil
 		case mainCtx.Err() != nil:
@@ -108,7 +108,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return nil, errOverall
 }
 
-func waitResult(ctx context.Context, resultCh <-chan *indexedResp, errorCh <-chan error, timeout time.Duration) (*indexedResp, error) {
+func waitResult(ctx context.Context, resultCh <-chan indexedResp, errorCh <-chan error, timeout time.Duration) (indexedResp, error) {
 	// try to read result first before blocking on all other channels
 	select {
 	case res := <-resultCh:
@@ -122,13 +122,13 @@ func waitResult(ctx context.Context, resultCh <-chan *indexedResp, errorCh <-cha
 			return res, nil
 
 		case reqErr := <-errorCh:
-			return nil, reqErr
+			return indexedResp{}, reqErr
 
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return indexedResp{}, ctx.Err()
 
 		case <-timer.C:
-			return nil, nil // it's not a request timeout, it's timeout BETWEEN consecutive requests
+			return indexedResp{}, nil // it's not a request timeout, it's timeout BETWEEN consecutive requests
 		}
 	}
 }
