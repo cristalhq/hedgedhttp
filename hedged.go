@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -58,15 +59,31 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
+	var waitingFor int64
+	cancelCh := make(chan func(), ht.upto)
+	defer func() {
+		// close all sent request asynchronous
+		go func() {
+			// if we're here then there will be no more requests
+			got := atomic.LoadInt64(&waitingFor)
+			for i := int64(0); i < got; i++ {
+				c := <-cancelCh
+				c()
+			}
+		}()
+	}()
+
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
 		if sent < ht.upto {
 			runInPool(func() {
+				atomic.AddInt64(&waitingFor, 1)
 				req, cancel := reqWithCtx(req, mainCtx)
-				defer cancel()
 
 				resp, err := ht.rt.RoundTrip(req)
 				if err != nil {
 					errorCh <- err
+					// we're interested in the failed request contexts only
+					cancelCh <- cancel
 				} else {
 					resultCh <- resp
 				}

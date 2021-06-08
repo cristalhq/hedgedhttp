@@ -92,12 +92,18 @@ func TestFirstIsOK(t *testing.T) {
 }
 
 func TestBestResponse(t *testing.T) {
-	timeout := []time.Duration{7000 * time.Millisecond, 100 * time.Millisecond, 20 * time.Millisecond}
-	shortest := shortestFrom(timeout)
+	const shortest = 20 * time.Millisecond
+	timeouts := [...]time.Duration{30 * shortest, 5 * shortest, shortest, shortest, shortest}
+	timeoutCh := make(chan time.Duration, len(timeouts))
+	for _, t := range timeouts {
+		timeoutCh <- t
+	}
 
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(timeout[rand.Int()%len(timeout)])
+		time.Sleep(<-timeoutCh)
 	})
+
+	start := time.Now()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -106,12 +112,15 @@ func TestBestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp
 
-	start := time.Now()
-	_, _ = NewClient(10*time.Millisecond, 10, nil).Do(req)
 	passed := time.Since(start)
 
-	if float64(passed) > float64(shortest)*1.2 {
+	if float64(passed) > float64(shortest)*2.5 {
 		t.Fatalf("want %v, got %v", shortest, passed)
 	}
 }
