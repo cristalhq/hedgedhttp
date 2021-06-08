@@ -13,14 +13,16 @@ const infiniteTimeout = 30 * 24 * time.Hour // domain specific infinite
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Client {
+// cancelContext controls whether or not this client will cancel request contexts automatically.
+//   It is recommened to set this to true unless you are having issues.
+func NewClient(timeout time.Duration, upto int, cancelContext bool, client *http.Client) *http.Client {
 	if client == nil {
 		client = &http.Client{
 			Timeout: 5 * time.Second,
 		}
 	}
 
-	client.Transport = NewRoundTripper(timeout, upto, client.Transport)
+	client.Transport = NewRoundTripper(timeout, upto, cancelContext, client.Transport)
 
 	return client
 }
@@ -28,22 +30,26 @@ func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Clien
 // NewRoundTripper returns a new http.RoundTripper which implements hedged requests pattern.
 // Given RoundTripper starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) http.RoundTripper {
+// cancelContext controls whether or not this client will cancel request context automatically.
+//   It is recommened to set this to true unless you are having issues.
+func NewRoundTripper(timeout time.Duration, upto int, cancelContext bool, rt http.RoundTripper) http.RoundTripper {
 	if rt == nil {
 		rt = http.DefaultTransport
 	}
 	hedged := &hedgedTransport{
-		rt:      rt,
-		timeout: timeout,
-		upto:    upto,
+		rt:            rt,
+		timeout:       timeout,
+		upto:          upto,
+		cancelContext: cancelContext,
 	}
 	return hedged
 }
 
 type hedgedTransport struct {
-	rt      http.RoundTripper
-	timeout time.Duration
-	upto    int
+	rt            http.RoundTripper
+	timeout       time.Duration
+	upto          int
+	cancelContext bool
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -58,11 +64,15 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultCh := make(chan *http.Response, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
+	cancelContext := ht.cancelContext
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
 		if sent < ht.upto {
 			runInPool(func() {
-				req, cancel := reqWithCtx(req, mainCtx)
-				defer cancel()
+				if cancelContext {
+					var cancel func()
+					req, cancel = reqWithCtx(req, mainCtx)
+					defer cancel()
+				}
 
 				resp, err := ht.rt.RoundTrip(req)
 				if err != nil {

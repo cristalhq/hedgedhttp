@@ -29,7 +29,7 @@ func TestUpto(t *testing.T) {
 	}
 
 	const upto = 7
-	_, _ = NewClient(10*time.Millisecond, upto, nil).Do(req)
+	_, _ = NewClient(10*time.Millisecond, upto, true, nil).Do(req)
 
 	if gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
@@ -53,7 +53,7 @@ func TestNoTimeout(t *testing.T) {
 	const upto = 10
 
 	start := time.Now()
-	_, _ = NewClient(0, upto, nil).Do(req)
+	_, _ = NewClient(0, upto, true, nil).Do(req)
 	passed := time.Since(start)
 
 	want := float64(sleep) * 1.5 // some coefficient
@@ -76,7 +76,7 @@ func TestFirstIsOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, 10, nil).Do(req)
+	resp, err := NewClient(10*time.Millisecond, 10, true, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestBestResponse(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, _ = NewClient(10*time.Millisecond, 10, nil).Do(req)
+	_, _ = NewClient(10*time.Millisecond, 10, true, nil).Do(req)
 	passed := time.Since(start)
 
 	if float64(passed) > float64(shortest)*1.2 {
@@ -142,7 +142,7 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	resp, err := NewClient(10*time.Millisecond, 5, true, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(time.Millisecond, upto, nil).Do(req)
+	resp, err := NewClient(time.Millisecond, upto, true, nil).Do(req)
 	if err == nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestHangAllExceptLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, upto, nil).Do(req)
+	resp, err := NewClient(10*time.Millisecond, upto, true, nil).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestCancelByClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	resp, err := NewClient(10*time.Millisecond, 5, true, nil).Do(req)
 	if err == nil {
 		t.Fatal(err)
 	}
