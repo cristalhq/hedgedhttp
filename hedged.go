@@ -29,9 +29,21 @@ func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Clien
 // Given RoundTripper starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
 func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) http.RoundTripper {
+	switch {
+	case timeout < 0:
+		panic("hedgedhttp: timeout cannot be negative")
+	case upto < 1:
+		panic("hedgedhttp: upto must be greater than 0")
+	}
+
 	if rt == nil {
 		rt = http.DefaultTransport
 	}
+
+	if timeout == 0 {
+		timeout = time.Nanosecond // smallest possible timeout if not set
+	}
+
 	hedged := &hedgedTransport{
 		rt:      rt,
 		timeout: timeout,
@@ -50,10 +62,6 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	mainCtx := req.Context()
 
 	timeout := ht.timeout
-	if timeout == 0 {
-		timeout = time.Nanosecond // smallest possible timeout if not set
-	}
-
 	errOverall := &MultiError{}
 	resultCh := make(chan indexedResp, ht.upto)
 	errorCh := make(chan error, ht.upto)
