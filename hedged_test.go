@@ -14,6 +14,28 @@ import (
 	"time"
 )
 
+func TestValidateInput(t *testing.T) {
+	f := func(f func()) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Fatal()
+			}
+		}()
+
+		f()
+	}
+
+	f(func() {
+		NewClient(-time.Second, 0, nil)
+	})
+	f(func() {
+		NewClient(time.Second, -1, nil)
+	})
+	f(func() {
+		NewClient(time.Second, 0, nil)
+	})
+}
+
 func TestUpto(t *testing.T) {
 	var gotRequests int64
 
