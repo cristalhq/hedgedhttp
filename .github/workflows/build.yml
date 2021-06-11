@@ -26,13 +26,8 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v2
 
-    - name: Download module dependencies
-      env: 
-         GOPROXY: "https://proxy.golang.org"
-      run: go mod download
-
     - name: Test
-      run: go test -v -coverprofile=coverage.txt ./...
+      run: go test -v -race -coverprofile=coverage.txt ./...
 
     - name: Upload Coverage
       uses: codecov/codecov-action@v1
@@ -57,4 +52,4 @@ jobs:
         run: |
           git log --format="%C(auto) %H %s" `git tag --sort=-committerdate | head -1`...HEAD > changelog.txt
           echo ${{ secrets.GITHUB_TOKEN }} | gh auth login --with-token
-          gh release create ${{ github.event.inputs.tag }} -F changelog.txt
+          gh release create ${{ github.event.inputs.tag }} -t ${{ github.event.inputs.tag }} -F changelog.txt
