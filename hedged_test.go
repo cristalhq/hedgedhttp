@@ -321,13 +321,21 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	if !strings.Contains(err.Error(), wantErrStr) {
 		t.Fatalf("Unexpected err %+v", err)
 	}
-	expectExactMetricsAndSnapshot(t, metrics, hedgedhttp.TransportInstrumentationSnapshot{
-		RequestedRoundTrips:      1,
-		ActualRoundTrips:         upto,
-		FailedRoundTrips:         upto,
-		CanceledByUserRoundTrips: 0,
-		CanceledSubRequests:      upto,
-	})
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != upto {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > upto {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
+	}
 }
 
 func TestHangAllExceptLast(t *testing.T) {
