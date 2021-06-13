@@ -1,9 +1,10 @@
-package hedgedhttp
+package hedgedhttp_test
 
 import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/cristalhq/hedgedhttp"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -26,13 +27,22 @@ func TestValidateInput(t *testing.T) {
 	}
 
 	f(func() {
-		NewClient(-time.Second, 0, nil)
+		hedgedhttp.NewClient(-time.Second, 0, nil)
 	})
 	f(func() {
-		NewClient(time.Second, -1, nil)
+		hedgedhttp.NewClient(time.Second, -1, nil)
 	})
 	f(func() {
-		NewClient(time.Second, 0, nil)
+		hedgedhttp.NewClient(time.Second, 0, nil)
+	})
+	f(func() {
+		hedgedhttp.NewClientWithInstrumentation(-time.Second, 0, nil)
+	})
+	f(func() {
+		hedgedhttp.NewClientWithInstrumentation(time.Second, -1, nil)
+	})
+	f(func() {
+		hedgedhttp.NewClientWithInstrumentation(time.Second, 0, nil)
 	})
 }
 
@@ -50,10 +60,48 @@ func TestUpto(t *testing.T) {
 	}
 
 	const upto = 7
-	_, _ = NewClient(10*time.Millisecond, upto, nil).Do(req)
+	_, _ = hedgedhttp.NewClient(10*time.Millisecond, upto, nil).Do(req)
 
 	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
+	}
+}
+
+func TestUptoWithInstrumentation(t *testing.T) {
+	var gotRequests int64
+
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&gotRequests, 1)
+		time.Sleep(100 * time.Millisecond)
+	})
+
+	req, err := http.NewRequest("GET", url, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const upto = 7
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(10*time.Millisecond, upto, nil)
+	checkAllMetricsAreZero(t, metrics)
+
+	_, _ = client.Do(req)
+	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
+		t.Fatalf("want %v, got %v", upto, gotRequests)
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != 0 {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > upto {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
 	}
 }
 
@@ -73,16 +121,27 @@ func TestNoTimeout(t *testing.T) {
 
 	const upto = 10
 
-	start := time.Now()
-	_, _ = NewClient(0, upto, nil).Do(req)
-	passed := time.Since(start)
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(0, upto, nil)
+	checkAllMetricsAreZero(t, metrics)
+	_, _ = client.Do(req)
 
-	want := float64(sleep) * 1.5 // some coefficient
-	if float64(passed) > want {
-		t.Fatalf("want %v, got %v", time.Duration(want), passed)
-	}
-	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
+	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests < 1 || gotRequests > upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips < 2 || actualRoundTrips > upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != 0 {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > upto {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
 	}
 }
 
@@ -97,7 +156,9 @@ func TestFirstIsOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, 10, nil).Do(req)
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(10*time.Millisecond, 10, nil)
+	checkAllMetricsAreZero(t, metrics)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +171,13 @@ func TestFirstIsOK(t *testing.T) {
 	if string(body) != "ok" {
 		t.Fatalf("want ok, got %s", string(body))
 	}
+	expectExactMetricsAndSnapshot(t, metrics, hedgedhttp.TransportInstrumentationSnapshot{
+		RequestedRoundTrips:      1,
+		ActualRoundTrips:         1,
+		FailedRoundTrips:         0,
+		CanceledByUserRoundTrips: 0,
+		CanceledSubRequests:      0,
+	})
 }
 
 func TestBestResponse(t *testing.T) {
@@ -133,7 +201,9 @@ func TestBestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewClient(10*time.Millisecond, 5, nil).Do(req)
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(10*time.Millisecond, 5, nil)
+	checkAllMetricsAreZero(t, metrics)
+	_, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,14 +212,30 @@ func TestBestResponse(t *testing.T) {
 	if float64(passed) > float64(shortest)*2.5 {
 		t.Fatalf("want %v, got %v", shortest, passed)
 	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips < 4 || actualRoundTrips > 5 {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != 0 {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > 4 {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
+	}
 }
 
 func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 	var gotRequests uint64
 
+	upto := uint64(5)
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		idx := atomic.AddUint64(&gotRequests, 1)
-		if idx == 5 {
+		if idx == upto {
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte("success")); err != nil {
 				t.Fatal(err)
@@ -170,7 +256,9 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(10*time.Millisecond, int(upto), nil)
+	checkAllMetricsAreZero(t, metrics)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,6 +272,21 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 	}
 	if !bytes.Equal(respBytes, []byte("success")) {
 		t.Fatalf("Unexpected resp body %+v; as string: %+v", respBytes, string(respBytes))
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != upto-1 {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > 4 {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
 	}
 }
 
@@ -204,7 +307,9 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(time.Millisecond, upto, nil).Do(req)
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(time.Millisecond, upto, nil)
+	checkAllMetricsAreZero(t, metrics)
+	resp, err := client.Do(req)
 	if err == nil {
 		t.Fatal(err)
 	}
@@ -215,6 +320,21 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto)
 	if !strings.Contains(err.Error(), wantErrStr) {
 		t.Fatalf("Unexpected err %+v", err)
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != upto {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > upto {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
 	}
 }
 
@@ -238,12 +358,29 @@ func TestHangAllExceptLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, upto, nil).Do(req)
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(10*time.Millisecond, upto, nil)
+	checkAllMetricsAreZero(t, metrics)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Unexpected resp status code: %+v", resp.StatusCode)
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != 0 {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > upto-1 {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
 	}
 }
 
@@ -266,12 +403,58 @@ func TestCancelByClient(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, err := NewClient(10*time.Millisecond, 5, nil).Do(req)
+	upto := 5
+	client, metrics := hedgedhttp.NewClientWithInstrumentation(10*time.Millisecond, upto, nil)
+	checkAllMetricsAreZero(t, metrics)
+	resp, err := client.Do(req)
 	if err == nil {
 		t.Fatal(err)
 	}
 	if resp != nil {
 		t.Fatalf("Unexpected resp: %+v", resp)
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != uint64(upto) {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips > uint64(upto) {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != 1 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests > uint64(upto) {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
+	}
+}
+
+func checkAllMetricsAreZero(t *testing.T, metrics *hedgedhttp.TransportInstrumentationMetrics) {
+	expectExactMetricsAndSnapshot(t, metrics, hedgedhttp.TransportInstrumentationSnapshot{})
+}
+
+func expectExactMetricsAndSnapshot(t *testing.T, metrics *hedgedhttp.TransportInstrumentationMetrics, snapshot hedgedhttp.TransportInstrumentationSnapshot) {
+	if metrics == nil {
+		t.Fatalf("Metrics object can't be nil")
+	}
+	if requestedRoundTrips := metrics.GetRequestedRoundTrips(); requestedRoundTrips != snapshot.RequestedRoundTrips {
+		t.Fatalf("Unnexpected requestedRoundTrips: %+v; expected: %+v", requestedRoundTrips, snapshot.RequestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.GetActualRoundTrips(); actualRoundTrips != snapshot.ActualRoundTrips {
+		t.Fatalf("Unnexpected actualRoundTrips: %+v; expected: %+v", actualRoundTrips, snapshot.ActualRoundTrips)
+	}
+	if failedRoundTrips := metrics.GetFailedRoundTrips(); failedRoundTrips != snapshot.FailedRoundTrips {
+		t.Fatalf("Unnexpected failedRoundTrips: %+v; expected: %+v", failedRoundTrips, snapshot.FailedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.GetCanceledByUserRoundTrips(); canceledByUserRoundTrips != snapshot.CanceledByUserRoundTrips {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %+v; expected: %+v", canceledByUserRoundTrips, snapshot.CanceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.GetCanceledSubRequests(); canceledSubRequests != snapshot.CanceledSubRequests {
+		t.Fatalf("Unnexpected canceledSubRequests: %+v; expected: %+v", canceledSubRequests, snapshot.CanceledSubRequests)
+	}
+	if currentSnapshot := metrics.GetSnapshot(); currentSnapshot != snapshot {
+		t.Fatalf("Unnexpected currentSnapshot: %+v; expected: %+v", currentSnapshot, snapshot)
 	}
 }
 
