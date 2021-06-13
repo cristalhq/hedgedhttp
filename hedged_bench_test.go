@@ -64,8 +64,8 @@ func BenchmarkHedgedRequest(b *testing.B) {
 
 			var errors = uint64(0)
 			var snapshot atomic.Value
-
-			hedgedTarget, metrics := hedgedhttp.NewRoundTripperWithInstrumentation(10*time.Nanosecond, 10, target)
+a
+			hedgedTarget, metrics := hedgedhttp.NewRoundTripperAndStats(10*time.Nanosecond, 10, target)
 			initialSnapshot := metrics.GetSnapshot()
 			snapshot.Store(&initialSnapshot)
 
