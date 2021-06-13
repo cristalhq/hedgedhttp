@@ -15,51 +15,41 @@ const infiniteTimeout = 30 * 24 * time.Hour // domain specific infinite
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
 func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Client {
-	newClient, _ := createNewClient(timeout, upto, client, false)
+	newClient, _ := NewClientAndStats(timeout, upto, client)
 	return newClient
 }
 
-// NewClientWithInstrumentation returns a new http.Client which implements hedged requests pattern
-// And TransportInstrumentationMetrics object that can be queried to obtain certain metrics and get better observability.
+// NewClientAndStats returns a new http.Client which implements hedged requests pattern
+// And Stats object that can be queried to obtain client's metrics.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewClientWithInstrumentation(timeout time.Duration, upto int, client *http.Client) (*http.Client, *TransportInstrumentationMetrics) {
-	return createNewClient(timeout, upto, client, true)
-}
-
-func createNewClient(timeout time.Duration, upto int, client *http.Client, withInstrumentation bool) (*http.Client, *TransportInstrumentationMetrics) {
+func NewClientAndStats(timeout time.Duration, upto int, client *http.Client) (*http.Client, *Stats) {
 	if client == nil {
 		client = &http.Client{
 			Timeout: 5 * time.Second,
 		}
 	}
-	if withInstrumentation {
-		newTransport, metrics := NewRoundTripperWithInstrumentation(timeout, upto, client.Transport)
-		client.Transport = newTransport
-		return client, metrics
-	}
-	client.Transport = NewRoundTripper(timeout, upto, client.Transport)
-	return client, nil
-}
 
-// NewRoundTripperWithInstrumentation returns a new http.RoundTripper which implements hedged requests pattern
-// And TransportInstrumentationMetrics object that can be queried to obtain certain metrics and get better observability.
-// Given RoundTripper starts a new request after a timeout from previous request.
-// Starts no more than upto requests.
-func NewRoundTripperWithInstrumentation(timeout time.Duration, upto int, rt http.RoundTripper) (http.RoundTripper, *TransportInstrumentationMetrics) {
-	roundTripper := createHedgedRoundTripper(timeout, upto, rt)
-	roundTripper.metrics = &TransportInstrumentationMetrics{}
-	return roundTripper, roundTripper.metrics
+	newTransport, metrics := NewRoundTripperAndStats(timeout, upto, client.Transport)
+
+	client.Transport = newTransport
+
+	return client, metrics
 }
 
 // NewRoundTripper returns a new http.RoundTripper which implements hedged requests pattern.
 // Given RoundTripper starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
 func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) http.RoundTripper {
-	return createHedgedRoundTripper(timeout, upto, rt)
+	newRT, _ := NewRoundTripperAndStats(timeout, upto, rt)
+	return newRT
 }
 
-func createHedgedRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) *hedgedTransport {
+// NewRoundTripperAndStats returns a new http.RoundTripper which implements hedged requests pattern
+// And Stats object that can be queried to obtain client's metrics.
+// Given RoundTripper starts a new request after a timeout from previous request.
+// Starts no more than upto requests.
+func NewRoundTripperAndStats(timeout time.Duration, upto int, rt http.RoundTripper) (http.RoundTripper, *Stats) {
 	switch {
 	case timeout < 0:
 		panic("hedgedhttp: timeout cannot be negative")
@@ -79,77 +69,16 @@ func createHedgedRoundTripper(timeout time.Duration, upto int, rt http.RoundTrip
 		rt:      rt,
 		timeout: timeout,
 		upto:    upto,
+		metrics: &Stats{},
 	}
-	return hedged
-}
-
-type freeCacheLine [64]byte
-
-type falseSharingSafeCounter struct {
-	count uint64
-	_     [7]uint64
-}
-
-// TransportInstrumentationMetrics object that can be queried to obtain certain metrics and get better observability.
-type TransportInstrumentationMetrics struct {
-	_                        freeCacheLine
-	requestedRoundTrips      falseSharingSafeCounter
-	actualRoundTrips         falseSharingSafeCounter
-	failedRoundTrips         falseSharingSafeCounter
-	canceledByUserRoundTrips falseSharingSafeCounter
-	canceledSubRequests      falseSharingSafeCounter
-	_                        freeCacheLine
-}
-
-// TransportInstrumentationSnapshot is a snapshot of TransportInstrumentationMetrics.
-type TransportInstrumentationSnapshot struct {
-	RequestedRoundTrips      uint64 // count of requests that were requested by client
-	ActualRoundTrips         uint64 // count of requests that were actually sent
-	FailedRoundTrips         uint64 // count of requests that failed
-	CanceledByUserRoundTrips uint64 // count of requests that were canceled by user, using request context
-	CanceledSubRequests      uint64 // count of hedged sub-requests that were canceled by transport
-}
-
-// GetRequestedRoundTrips returns count of requests that were requested by client.
-func (m *TransportInstrumentationMetrics) GetRequestedRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.requestedRoundTrips.count)
-}
-
-// GetActualRoundTrips returns count of requests that were actually sent.
-func (m *TransportInstrumentationMetrics) GetActualRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.actualRoundTrips.count)
-}
-
-// GetFailedRoundTrips returns count of requests that failed.
-func (m *TransportInstrumentationMetrics) GetFailedRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.failedRoundTrips.count)
-}
-
-// GetCanceledByUserRoundTrips returns count of requests that were canceled by user, using request context.
-func (m *TransportInstrumentationMetrics) GetCanceledByUserRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.canceledByUserRoundTrips.count)
-}
-
-// GetCanceledSubRequests returns count of hedged sub-requests that were canceled by transport.
-func (m *TransportInstrumentationMetrics) GetCanceledSubRequests() uint64 {
-	return atomic.LoadUint64(&m.canceledSubRequests.count)
-}
-
-func (m *TransportInstrumentationMetrics) GetSnapshot() TransportInstrumentationSnapshot {
-	return TransportInstrumentationSnapshot{
-		RequestedRoundTrips:      m.GetRequestedRoundTrips(),
-		ActualRoundTrips:         m.GetActualRoundTrips(),
-		FailedRoundTrips:         m.GetFailedRoundTrips(),
-		CanceledByUserRoundTrips: m.GetCanceledByUserRoundTrips(),
-		CanceledSubRequests:      m.GetCanceledSubRequests(),
-	}
+	return hedged, hedged.metrics
 }
 
 type hedgedTransport struct {
 	rt      http.RoundTripper
 	timeout time.Duration
 	upto    int
-	metrics *TransportInstrumentationMetrics
+	metrics *Stats
 }
 
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -160,9 +89,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultCh := make(chan indexedResp, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
-	if ht.metrics != nil {
-		atomic.AddUint64(&ht.metrics.requestedRoundTrips.count, 1)
-	}
+	ht.metrics.requestedRoundTripsInc()
 
 	resultIdx := -1
 	cancels := make([]func(), ht.upto)
@@ -170,9 +97,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	defer runInPool(func() {
 		for i, cancel := range cancels {
 			if i != resultIdx && cancel != nil {
-				if ht.metrics != nil {
-					atomic.AddUint64(&ht.metrics.canceledSubRequests.count, 1)
-				}
+				ht.metrics.canceledSubRequestsInc()
 				cancel()
 			}
 		}
@@ -185,14 +110,10 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			cancels[idx] = cancel
 
 			runInPool(func() {
-				if ht.metrics != nil {
-					atomic.AddUint64(&ht.metrics.actualRoundTrips.count, 1)
-				}
+				ht.metrics.actualRoundTripsInc()
 				resp, err := ht.rt.RoundTrip(subReq)
 				if err != nil {
-					if ht.metrics != nil {
-						atomic.AddUint64(&ht.metrics.failedRoundTrips.count, 1)
-					}
+					ht.metrics.failedRoundTripsInc()
 					errorCh <- err
 				} else {
 					resultCh <- indexedResp{idx, resp}
@@ -211,9 +132,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			resultIdx = resp.Index
 			return resp.Resp, nil
 		case mainCtx.Err() != nil:
-			if ht.metrics != nil {
-				atomic.AddUint64(&ht.metrics.canceledByUserRoundTrips.count, 1)
-			}
+			ht.metrics.canceledByUserRoundTripsInc()
 			return nil, mainCtx.Err()
 		case err != nil:
 			errOverall.Errors = append(errOverall.Errors, err)
@@ -258,6 +177,76 @@ func reqWithCtx(r *http.Request, ctx context.Context) (*http.Request, func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	req := r.WithContext(ctx)
 	return req, cancel
+}
+
+// atomicCounter is a false sharing safe counter.
+type atomicCounter struct {
+	count uint64
+	_     [7]uint64
+}
+
+type cacheLine [64]byte
+
+// Stats object that can be queried to obtain certain metrics and get better observability.
+type Stats struct {
+	_                        cacheLine
+	requestedRoundTrips      atomicCounter
+	actualRoundTrips         atomicCounter
+	failedRoundTrips         atomicCounter
+	canceledByUserRoundTrips atomicCounter
+	canceledSubRequests      atomicCounter
+	_                        cacheLine
+}
+
+func (s *Stats) requestedRoundTripsInc()      { atomic.AddUint64(&s.requestedRoundTrips.count, 1) }
+func (s *Stats) actualRoundTripsInc()         { atomic.AddUint64(&s.actualRoundTrips.count, 1) }
+func (s *Stats) failedRoundTripsInc()         { atomic.AddUint64(&s.failedRoundTrips.count, 1) }
+func (s *Stats) canceledByUserRoundTripsInc() { atomic.AddUint64(&s.canceledByUserRoundTrips.count, 1) }
+func (s *Stats) canceledSubRequestsInc()      { atomic.AddUint64(&s.canceledSubRequests.count, 1) }
+
+// RequestedRoundTrips returns count of requests that were requested by client.
+func (m *Stats) RequestedRoundTrips() uint64 {
+	return atomic.LoadUint64(&m.requestedRoundTrips.count)
+}
+
+// ActualRoundTrips returns count of requests that were actually sent.
+func (m *Stats) ActualRoundTrips() uint64 {
+	return atomic.LoadUint64(&m.actualRoundTrips.count)
+}
+
+// FailedRoundTrips returns count of requests that failed.
+func (m *Stats) FailedRoundTrips() uint64 {
+	return atomic.LoadUint64(&m.failedRoundTrips.count)
+}
+
+// CanceledByUserRoundTrips returns count of requests that were canceled by user, using request context.
+func (m *Stats) CanceledByUserRoundTrips() uint64 {
+	return atomic.LoadUint64(&m.canceledByUserRoundTrips.count)
+}
+
+// CanceledSubRequests returns count of hedged sub-requests that were canceled by transport.
+func (m *Stats) CanceledSubRequests() uint64 {
+	return atomic.LoadUint64(&m.canceledSubRequests.count)
+}
+
+// StatsSnapshot is a snapshot of Stats.
+type StatsSnapshot struct {
+	RequestedRoundTrips      uint64 // count of requests that were requested by client
+	ActualRoundTrips         uint64 // count of requests that were actually sent
+	FailedRoundTrips         uint64 // count of requests that failed
+	CanceledByUserRoundTrips uint64 // count of requests that were canceled by user, using request context
+	CanceledSubRequests      uint64 // count of hedged sub-requests that were canceled by transport
+}
+
+// Snapshot of the stats.
+func (m *Stats) Snapshot() StatsSnapshot {
+	return StatsSnapshot{
+		RequestedRoundTrips:      m.RequestedRoundTrips(),
+		ActualRoundTrips:         m.ActualRoundTrips(),
+		FailedRoundTrips:         m.FailedRoundTrips(),
+		CanceledByUserRoundTrips: m.CanceledByUserRoundTrips(),
+		CanceledSubRequests:      m.CanceledSubRequests(),
+	}
 }
 
 var taskQueue = make(chan func())
