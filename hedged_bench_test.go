@@ -2,7 +2,6 @@ package hedgedhttp_test
 
 import (
 	"fmt"
-	"github.com/cristalhq/hedgedhttp"
 	"io"
 	"math/rand"
 	"net/http"
@@ -10,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cristalhq/hedgedhttp"
 )
 
 var localRandom = sync.Pool{
@@ -64,15 +65,15 @@ func BenchmarkHedgedRequest(b *testing.B) {
 			var errors = uint64(0)
 			var snapshot atomic.Value
 
-			hedgedTarget, metrics := hedgedhttp.NewRoundTripperWithInstrumentation(1*time.Microsecond, 10, target)
-			initialSnapshot := metrics.GetSnapshot()
+			hedgedTarget, metrics := hedgedhttp.NewRoundTripperAndStats(1*time.Microsecond, 10, target)
+			initialSnapshot := metrics.Snapshot()
 			snapshot.Store(&initialSnapshot)
 
 			go func() {
 				ticker := time.NewTicker(1 * time.Millisecond)
 				defer ticker.Stop()
 				for range ticker.C {
-					currentSnapshot := metrics.GetSnapshot()
+					currentSnapshot := metrics.Snapshot()
 					snapshot.Store(&currentSnapshot)
 				}
 			}()
