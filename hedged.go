@@ -3,8 +3,10 @@ package hedgedhttp
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -83,6 +85,20 @@ func createHedgedRoundTripper(timeout time.Duration, upto int, rt http.RoundTrip
 	return hedged
 }
 
+var localRandom = sync.Pool{
+	New: func() interface{} {
+		return rand.New(rand.NewSource(time.Now().Unix()))
+	},
+}
+
+func getLocalRand() *rand.Rand {
+	return localRandom.Get().(*rand.Rand)
+}
+
+func returnLocalRand(rnd *rand.Rand) {
+	localRandom.Put(rnd)
+}
+
 type freeCacheLine [64]byte
 
 type falseSharingSafeCounter struct {
@@ -90,14 +106,16 @@ type falseSharingSafeCounter struct {
 	_     [7]uint64
 }
 
+const shardingFactor = 32
+
 // TransportInstrumentationMetrics object that can be queried to obtain certain metrics and get better observability.
 type TransportInstrumentationMetrics struct {
 	_                        freeCacheLine
-	requestedRoundTrips      falseSharingSafeCounter
-	actualRoundTrips         falseSharingSafeCounter
-	failedRoundTrips         falseSharingSafeCounter
-	canceledByUserRoundTrips falseSharingSafeCounter
-	canceledSubRequests      falseSharingSafeCounter
+	requestedRoundTrips      [shardingFactor]falseSharingSafeCounter
+	actualRoundTrips         [shardingFactor]falseSharingSafeCounter
+	failedRoundTrips         [shardingFactor]falseSharingSafeCounter
+	canceledByUserRoundTrips [shardingFactor]falseSharingSafeCounter
+	canceledSubRequests      [shardingFactor]falseSharingSafeCounter
 	_                        freeCacheLine
 }
 
@@ -112,27 +130,47 @@ type TransportInstrumentationSnapshot struct {
 
 // GetRequestedRoundTrips returns count of requests that were requested by client.
 func (m *TransportInstrumentationMetrics) GetRequestedRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.requestedRoundTrips.count)
+	result := uint64(0)
+	for i := range m.requestedRoundTrips {
+		result += atomic.LoadUint64(&m.requestedRoundTrips[i].count)
+	}
+	return result
 }
 
 // GetActualRoundTrips returns count of requests that were actually sent.
 func (m *TransportInstrumentationMetrics) GetActualRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.actualRoundTrips.count)
+	result := uint64(0)
+	for i := range m.actualRoundTrips {
+		result += atomic.LoadUint64(&m.actualRoundTrips[i].count)
+	}
+	return result
 }
 
 // GetFailedRoundTrips returns count of requests that failed.
 func (m *TransportInstrumentationMetrics) GetFailedRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.failedRoundTrips.count)
+	result := uint64(0)
+	for i := range m.failedRoundTrips {
+		result += atomic.LoadUint64(&m.failedRoundTrips[i].count)
+	}
+	return result
 }
 
 // GetCanceledByUserRoundTrips returns count of requests that were canceled by user, using request context.
 func (m *TransportInstrumentationMetrics) GetCanceledByUserRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.canceledByUserRoundTrips.count)
+	result := uint64(0)
+	for i := range m.canceledByUserRoundTrips {
+		result += atomic.LoadUint64(&m.canceledByUserRoundTrips[i].count)
+	}
+	return result
 }
 
 // GetCanceledSubRequests returns count of hedged sub-requests that were canceled by transport.
 func (m *TransportInstrumentationMetrics) GetCanceledSubRequests() uint64 {
-	return atomic.LoadUint64(&m.canceledSubRequests.count)
+	result := uint64(0)
+	for i := range m.canceledSubRequests {
+		result += atomic.LoadUint64(&m.canceledSubRequests[i].count)
+	}
+	return result
 }
 
 func (m *TransportInstrumentationMetrics) GetSnapshot() TransportInstrumentationSnapshot {
@@ -155,23 +193,31 @@ type hedgedTransport struct {
 func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	mainCtx := req.Context()
 
+	localRand := getLocalRand()
+	defer returnLocalRand(localRand)
+
+	mainRequestShardingId := localRand.Int() % shardingFactor
+
 	timeout := ht.timeout
 	errOverall := &MultiError{}
 	resultCh := make(chan indexedResp, ht.upto)
 	errorCh := make(chan error, ht.upto)
 
 	if ht.metrics != nil {
-		atomic.AddUint64(&ht.metrics.requestedRoundTrips.count, 1)
+		atomic.AddUint64(&ht.metrics.requestedRoundTrips[mainRequestShardingId].count, 1)
 	}
 
 	resultIdx := -1
 	cancels := make([]func(), ht.upto)
 
 	defer runInPool(func() {
+		cancelRand := getLocalRand()
+		defer returnLocalRand(cancelRand)
+		cancelShardingId := cancelRand.Int() % shardingFactor
 		for i, cancel := range cancels {
 			if i != resultIdx && cancel != nil {
 				if ht.metrics != nil {
-					atomic.AddUint64(&ht.metrics.canceledSubRequests.count, 1)
+					atomic.AddUint64(&ht.metrics.canceledSubRequests[cancelShardingId].count, 1)
 				}
 				cancel()
 			}
@@ -185,13 +231,16 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			cancels[idx] = cancel
 
 			runInPool(func() {
+				subRequestRand := getLocalRand()
+				defer returnLocalRand(subRequestRand)
+				subRequestShardingId := subRequestRand.Int() % shardingFactor
 				if ht.metrics != nil {
-					atomic.AddUint64(&ht.metrics.actualRoundTrips.count, 1)
+					atomic.AddUint64(&ht.metrics.actualRoundTrips[subRequestShardingId].count, 1)
 				}
 				resp, err := ht.rt.RoundTrip(subReq)
 				if err != nil {
 					if ht.metrics != nil {
-						atomic.AddUint64(&ht.metrics.failedRoundTrips.count, 1)
+						atomic.AddUint64(&ht.metrics.failedRoundTrips[subRequestShardingId].count, 1)
 					}
 					errorCh <- err
 				} else {
@@ -212,7 +261,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			return resp.Resp, nil
 		case mainCtx.Err() != nil:
 			if ht.metrics != nil {
-				atomic.AddUint64(&ht.metrics.canceledByUserRoundTrips.count, 1)
+				atomic.AddUint64(&ht.metrics.canceledByUserRoundTrips[mainRequestShardingId].count, 1)
 			}
 			return nil, mainCtx.Err()
 		case err != nil:

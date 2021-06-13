@@ -1,0 +1,10 @@
+> benchstat old.txt new.txt
+name                             old time/op  new time/op  delta
+HedgedRequest/concurrency-1-16   7.07µs ± 4%  7.39µs ± 4%   +4.66%  (p=0.000 n=10+10)
+HedgedRequest/concurrency-2-16   4.79µs ± 4%  5.17µs ± 2%   +7.82%  (p=0.000 n=10+9)
+HedgedRequest/concurrency-4-16   4.71µs ± 3%  5.34µs ± 7%  +13.33%  (p=0.000 n=10+10)
+HedgedRequest/concurrency-8-16   6.53µs ± 3%  7.00µs ± 3%   +7.17%  (p=0.000 n=10+9)
+HedgedRequest/concurrency-12-16  6.20µs ± 5%  5.88µs ± 4%   -5.05%  (p=0.000 n=10+10)
+HedgedRequest/concurrency-16-16  6.27µs ± 8%  5.94µs ± 6%   -5.26%  (p=0.003 n=10+10)
+HedgedRequest/concurrency-24-16  6.80µs ± 4%  5.88µs ± 4%  -13.59%  (p=0.000 n=9+10)
+HedgedRequest/concurrency-32-16  7.12µs ± 4%  5.78µs ± 4%  -18.84%  (p=0.000 n=9+10)
