@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -149,8 +150,8 @@ func waitResult(ctx context.Context, resultCh <-chan indexedResp, errorCh <-chan
 	case res := <-resultCh:
 		return res, nil
 	default:
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
+		timer := getTimer(timeout)
+		defer returnTimer(timer)
 
 		select {
 		case res := <-resultCh:
@@ -322,4 +323,23 @@ func listFormatFunc(es []error) string {
 	}
 
 	return fmt.Sprintf("%d errors occurred:\n\t%s\n\n", len(es), strings.Join(points, "\n\t"))
+}
+
+var timerPool = sync.Pool{New: func() interface{} {
+	return time.NewTimer(time.Second)
+}}
+
+func getTimer(duration time.Duration) *time.Timer {
+	timer := timerPool.Get().(*time.Timer)
+	timer.Reset(duration)
+	return timer
+}
+
+func returnTimer(timer *time.Timer) {
+	timer.Stop()
+	select {
+	case _ = <-timer.C:
+	default:
+	}
+	timerPool.Put(timer)
 }
