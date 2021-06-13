@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -224,14 +225,33 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	return nil, errOverall
 }
 
+var timerPool = sync.Pool{New: func() interface{} {
+	return time.NewTimer(time.Second)
+}}
+
+func getTimer(duration time.Duration) *time.Timer {
+	timer := timerPool.Get().(*time.Timer)
+	timer.Reset(duration)
+	return timer
+}
+
+func returnTimer(timer *time.Timer) {
+	timer.Stop()
+	select {
+	case _ = <-timer.C:
+	default:
+	}
+	timerPool.Put(timer)
+}
+
 func waitResult(ctx context.Context, resultCh <-chan indexedResp, errorCh <-chan error, timeout time.Duration) (indexedResp, error) {
 	// try to read result first before blocking on all other channels
 	select {
 	case res := <-resultCh:
 		return res, nil
 	default:
-		timer := time.NewTimer(timeout)
-		defer timer.Stop()
+		timer := getTimer(timeout)
+		defer returnTimer(timer)
 
 		select {
 		case res := <-resultCh:

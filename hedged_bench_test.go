@@ -49,6 +49,8 @@ func BenchmarkHedgedRequest(b *testing.B) {
 	}
 	for _, bm := range benchmarks {
 		b.Run(fmt.Sprintf("concurrency-%v", bm.concurrency), func(b *testing.B) {
+			b.ReportAllocs()
+
 			target := &FuncRoundTripper{
 				f: func(request *http.Request) (*http.Response, error) {
 					rnd := getLocalRand()
