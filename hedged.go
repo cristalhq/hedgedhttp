@@ -206,28 +206,28 @@ func (s *Stats) canceledByUserRoundTripsInc() { atomic.AddUint64(&s.canceledByUs
 func (s *Stats) canceledSubRequestsInc()      { atomic.AddUint64(&s.canceledSubRequests.count, 1) }
 
 // RequestedRoundTrips returns count of requests that were requested by client.
-func (m *Stats) RequestedRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.requestedRoundTrips.count)
+func (s *Stats) RequestedRoundTrips() uint64 {
+	return atomic.LoadUint64(&s.requestedRoundTrips.count)
 }
 
 // ActualRoundTrips returns count of requests that were actually sent.
-func (m *Stats) ActualRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.actualRoundTrips.count)
+func (s *Stats) ActualRoundTrips() uint64 {
+	return atomic.LoadUint64(&s.actualRoundTrips.count)
 }
 
 // FailedRoundTrips returns count of requests that failed.
-func (m *Stats) FailedRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.failedRoundTrips.count)
+func (s *Stats) FailedRoundTrips() uint64 {
+	return atomic.LoadUint64(&s.failedRoundTrips.count)
 }
 
 // CanceledByUserRoundTrips returns count of requests that were canceled by user, using request context.
-func (m *Stats) CanceledByUserRoundTrips() uint64 {
-	return atomic.LoadUint64(&m.canceledByUserRoundTrips.count)
+func (s *Stats) CanceledByUserRoundTrips() uint64 {
+	return atomic.LoadUint64(&s.canceledByUserRoundTrips.count)
 }
 
 // CanceledSubRequests returns count of hedged sub-requests that were canceled by transport.
-func (m *Stats) CanceledSubRequests() uint64 {
-	return atomic.LoadUint64(&m.canceledSubRequests.count)
+func (s *Stats) CanceledSubRequests() uint64 {
+	return atomic.LoadUint64(&s.canceledSubRequests.count)
 }
 
 // StatsSnapshot is a snapshot of Stats.
@@ -240,13 +240,13 @@ type StatsSnapshot struct {
 }
 
 // Snapshot of the stats.
-func (m *Stats) Snapshot() StatsSnapshot {
+func (s *Stats) Snapshot() StatsSnapshot {
 	return StatsSnapshot{
-		RequestedRoundTrips:      m.RequestedRoundTrips(),
-		ActualRoundTrips:         m.ActualRoundTrips(),
-		FailedRoundTrips:         m.FailedRoundTrips(),
-		CanceledByUserRoundTrips: m.CanceledByUserRoundTrips(),
-		CanceledSubRequests:      m.CanceledSubRequests(),
+		RequestedRoundTrips:      s.RequestedRoundTrips(),
+		ActualRoundTrips:         s.ActualRoundTrips(),
+		FailedRoundTrips:         s.FailedRoundTrips(),
+		CanceledByUserRoundTrips: s.CanceledByUserRoundTrips(),
+		CanceledSubRequests:      s.CanceledSubRequests(),
 	}
 }
 
