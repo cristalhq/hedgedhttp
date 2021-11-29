@@ -107,7 +107,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
 		if sent < ht.upto {
 			idx := sent
-			subReq, cancel := reqWithCtx(req, mainCtx, sent != 0)
+			subReq, cancel := reqWithCtx(req, mainCtx, idx != 0)
 			cancels[idx] = cancel
 
 			runInPool(func() {
