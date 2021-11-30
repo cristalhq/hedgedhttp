@@ -3,6 +3,7 @@ package hedgedhttp_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -423,6 +424,42 @@ func TestCancelByClient(t *testing.T) {
 	if canceledSubRequests := metrics.CanceledSubRequests(); canceledSubRequests > uint64(upto) {
 		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
 	}
+}
+
+func TestIsHedged(t *testing.T) {
+	var gotRequests int
+
+	rt := testRoundTripper(func(req *http.Request) (*http.Response, error) {
+		if gotRequests == 0 {
+			if hedgedhttp.IsHedgedRequest(req) {
+				t.Fatal("first request is hedged")
+			}
+		} else {
+			if !hedgedhttp.IsHedgedRequest(req) {
+				t.Fatalf("%d request is not hedged", gotRequests)
+			}
+		}
+		gotRequests++
+		return nil, errors.New("just an error")
+	})
+
+	req, err := http.NewRequest("GET", "http://no-matter-what", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const upto = 7
+	_, _ = hedgedhttp.NewRoundTripper(10*time.Millisecond, upto, rt).RoundTrip(req)
+
+	if gotRequests != upto {
+		t.Fatalf("want %v, got %v", upto, gotRequests)
+	}
+}
+
+type testRoundTripper func(req *http.Request) (*http.Response, error)
+
+func (t testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return t(req)
 }
 
 func checkAllMetricsAreZero(t *testing.T, metrics *hedgedhttp.Stats) {
