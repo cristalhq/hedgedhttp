@@ -33,7 +33,37 @@ go get github.com/cristalhq/hedgedhttp
 
 ## Example
 
-TODO
+```go
+ctx := context.Background()
+req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
+if err != nil {
+	panic(err)
+}
+
+timeout := 10 * time.Millisecond
+upto := 7
+transport := http.DefaultTransport
+hedged, stats := hedgedhttp.NewRoundTripperAndStats(timeout, upto, transport)
+
+// print stats periodically
+go func() {
+	for {
+		time.Sleep(time.Second)
+		fmt.Printf("stats: %+v\n", stats)
+	}
+}()
+
+// will take `upto` requests, with a `timeout` delay between them
+resp, err := hedged.RoundTrip(req)
+if err != nil {
+	panic(err)
+}
+defer resp.Body.Close()
+
+// and do something with resp
+```
+
+Also see examples: [examples_test.go](https://github.com/cristalhq/hedgedhttp/blob/main/example_test.go).
 
 ## Documentation
 
