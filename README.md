@@ -4,6 +4,7 @@
 [![pkg-img]][pkg-url]
 [![reportcard-img]][reportcard-url]
 [![coverage-img]][coverage-url]
+[![version-img]][version-url]
 
 Hedged HTTP client which helps to reduce tail latency at scale.
 
@@ -21,6 +22,7 @@ Thanks to [Bohdan Storozhuk](https://github.com/storozhukbm) for the review and 
 * Easy to integrate.
 * Optimized for speed.
 * Clean and tested code.
+* Supports `http.Client` and `http.RoundTripper`.
 * Dependency-free.
 
 ## Install
@@ -42,19 +44,11 @@ if err != nil {
 
 timeout := 10 * time.Millisecond
 upto := 7
-transport := http.DefaultTransport
-hedged, stats := hedgedhttp.NewRoundTripperAndStats(timeout, upto, transport)
-
-// print stats periodically
-go func() {
-	for {
-		time.Sleep(time.Second)
-		fmt.Printf("stats: %+v\n", stats)
-	}
-}()
+client := &http.Client{Timeout: time.Second}
+hedged := hedgedhttp.NewClient(timeout, upto, client)
 
 // will take `upto` requests, with a `timeout` delay between them
-resp, err := hedged.RoundTrip(req)
+resp, err := hedged.Do(req)
 if err != nil {
 	panic(err)
 }
@@ -63,7 +57,7 @@ defer resp.Body.Close()
 // and do something with resp
 ```
 
-Also see examples: [examples_test.go](https://github.com/cristalhq/hedgedhttp/blob/main/example_test.go).
+Also see examples: [examples_test.go](https://github.com/cristalhq/hedgedhttp/blob/main/examples_test.go).
 
 ## Documentation
 
@@ -81,3 +75,5 @@ See [these docs][pkg-url].
 [reportcard-url]: https://goreportcard.com/report/cristalhq/hedgedhttp
 [coverage-img]: https://codecov.io/gh/cristalhq/hedgedhttp/branch/main/graph/badge.svg
 [coverage-url]: https://codecov.io/gh/cristalhq/hedgedhttp
+[version-img]: https://img.shields.io/github/v/release/cristalhq/hedgedhttp
+[version-url]: https://github.com/cristalhq/hedgedhttp/releases

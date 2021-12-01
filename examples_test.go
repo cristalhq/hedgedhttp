@@ -11,7 +11,29 @@ import (
 	"github.com/cristalhq/hedgedhttp"
 )
 
-func ExampleHedged() {
+func ExampleHedgedClient() {
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
+	if err != nil {
+		panic(err)
+	}
+
+	timeout := 10 * time.Millisecond
+	upto := 7
+	client := &http.Client{Timeout: time.Second}
+	hedged := hedgedhttp.NewClient(timeout, upto, client)
+
+	// will take `upto` requests, with a `timeout` delay between them
+	resp, err := hedged.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	// and do something with resp
+}
+
+func ExampleHedgedRoundTripper() {
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
 	if err != nil {
@@ -46,10 +68,7 @@ func ExampleInstrumented() {
 		Transport: http.DefaultTransport,
 	}
 
-	timeout := 10 * time.Millisecond
-	upto := 7
-
-	_ = hedgedhttp.NewRoundTripper(timeout, upto, transport)
+	_ = hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
 }
 
 type InstrumentedTransport struct {
@@ -75,10 +94,7 @@ func ExampleRatelimit() {
 		Limiter:   &RandomRateLimiter{},
 	}
 
-	timeout := 10 * time.Millisecond
-	upto := 7
-
-	_ = hedgedhttp.NewRoundTripper(timeout, upto, transport)
+	_ = hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
 }
 
 // by example https://pkg.go.dev/golang.org/x/time/rate
@@ -109,4 +125,25 @@ func (r *RandomRateLimiter) Wait(ctx context.Context) error {
 		return errors.New("rate limit exceed")
 	}
 	return nil
+}
+
+func ExampleMultiTransport() {
+	transport := &MultiTransport{
+		First:  &http.Transport{MaxIdleConns: 10}, // just an example
+		Hedged: &http.Transport{MaxIdleConns: 30}, // just an example
+	}
+
+	_ = hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+}
+
+type MultiTransport struct {
+	First  http.RoundTripper // Used to make 1st requests.
+	Hedged http.RoundTripper // Used to make hedged requests.
+}
+
+func (t *MultiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if hedgedhttp.IsHedgedRequest(req) {
+		return t.Hedged.RoundTrip(req)
+	}
+	return t.First.RoundTrip(req)
 }
