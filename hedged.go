@@ -2,6 +2,7 @@ package hedgedhttp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,47 +16,56 @@ const infiniteTimeout = 30 * 24 * time.Hour // domain specific infinite
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewClient(timeout time.Duration, upto int, client *http.Client) *http.Client {
-	newClient, _ := NewClientAndStats(timeout, upto, client)
-	return newClient
+func NewClient(timeout time.Duration, upto int, client *http.Client) (*http.Client, error) {
+	newClient, _, err := NewClientAndStats(timeout, upto, client)
+	if err != nil {
+		return nil, err
+	}
+	return newClient, nil
 }
 
 // NewClientAndStats returns a new http.Client which implements hedged requests pattern
 // And Stats object that can be queried to obtain client's metrics.
 // Given Client starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewClientAndStats(timeout time.Duration, upto int, client *http.Client) (*http.Client, *Stats) {
+func NewClientAndStats(timeout time.Duration, upto int, client *http.Client) (*http.Client, *Stats, error) {
 	if client == nil {
 		client = &http.Client{
 			Timeout: 5 * time.Second,
 		}
 	}
 
-	newTransport, metrics := NewRoundTripperAndStats(timeout, upto, client.Transport)
+	newTransport, metrics, err := NewRoundTripperAndStats(timeout, upto, client.Transport)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	client.Transport = newTransport
 
-	return client, metrics
+	return client, metrics, nil
 }
 
 // NewRoundTripper returns a new http.RoundTripper which implements hedged requests pattern.
 // Given RoundTripper starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) http.RoundTripper {
-	newRT, _ := NewRoundTripperAndStats(timeout, upto, rt)
-	return newRT
+func NewRoundTripper(timeout time.Duration, upto int, rt http.RoundTripper) (http.RoundTripper, error) {
+	newRT, _, err := NewRoundTripperAndStats(timeout, upto, rt)
+	if err != nil {
+		return nil, err
+	}
+	return newRT, nil
 }
 
 // NewRoundTripperAndStats returns a new http.RoundTripper which implements hedged requests pattern
 // And Stats object that can be queried to obtain client's metrics.
 // Given RoundTripper starts a new request after a timeout from previous request.
 // Starts no more than upto requests.
-func NewRoundTripperAndStats(timeout time.Duration, upto int, rt http.RoundTripper) (http.RoundTripper, *Stats) {
+func NewRoundTripperAndStats(timeout time.Duration, upto int, rt http.RoundTripper) (http.RoundTripper, *Stats, error) {
 	switch {
 	case timeout < 0:
-		panic("hedgedhttp: timeout cannot be negative")
+		return nil, nil, errors.New("hedgedhttp: timeout cannot be negative")
 	case upto < 1:
-		panic("hedgedhttp: upto must be greater than 0")
+		return nil, nil, errors.New("hedgedhttp: upto must be greater than 0")
 	}
 
 	if rt == nil {
@@ -72,7 +82,7 @@ func NewRoundTripperAndStats(timeout time.Duration, upto int, rt http.RoundTripp
 		upto:    upto,
 		metrics: &Stats{},
 	}
-	return hedged, hedged.metrics
+	return hedged, hedged.metrics, nil
 }
 
 type hedgedTransport struct {
@@ -266,7 +276,7 @@ var taskQueue = make(chan func())
 func runInPool(task func()) {
 	select {
 	case taskQueue <- task:
-		// submited, everything is ok
+		// submitted, everything is ok
 
 	default:
 		go func() {
@@ -292,7 +302,7 @@ func runInPool(task func()) {
 
 // MultiError is an error type to track multiple errors. This is used to
 // accumulate errors in cases and return them as a single "error".
-// Insiper by https://github.com/hashicorp/go-multierror
+// Inspired by https://github.com/hashicorp/go-multierror
 type MultiError struct {
 	Errors        []error
 	ErrorFormatFn ErrorFormatFunc

@@ -36,25 +36,52 @@ go get github.com/cristalhq/hedgedhttp
 ## Example
 
 ```go
-ctx := context.Background()
-req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
-if err != nil {
-	panic(err)
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/cristalhq/hedgedhttp"
+)
+
+func main() {
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
+	if err != nil {
+		panic(err)
+	}
+
+	timeout := 10 * time.Millisecond
+	upto := 7
+	client := &http.Client{Timeout: time.Second}
+	hedged, err := hedgedhttp.NewClient(timeout, upto, client)
+	if err != nil {
+		panic(err)
+	}
+
+	// will take `upto` requests, with a `timeout` delay between them
+	resp, err := hedged.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	// and do something with resp
+	if resp.StatusCode != http.StatusOK {
+		panic(fmt.Sprintf("bad http status: %d", resp.StatusCode))
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(string(bodyBytes))
 }
-
-timeout := 10 * time.Millisecond
-upto := 7
-client := &http.Client{Timeout: time.Second}
-hedged := hedgedhttp.NewClient(timeout, upto, client)
-
-// will take `upto` requests, with a `timeout` delay between them
-resp, err := hedged.Do(req)
-if err != nil {
-	panic(err)
-}
-defer resp.Body.Close()
-
-// and do something with resp
 ```
 
 Also see examples: [examples_test.go](https://github.com/cristalhq/hedgedhttp/blob/main/examples_test.go).
