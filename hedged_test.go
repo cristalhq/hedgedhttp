@@ -18,28 +18,25 @@ import (
 )
 
 func TestValidateInput(t *testing.T) {
-	f := func(f func()) {
-		defer func() {
-			if r := recover(); r == nil {
-				t.Fatal()
-			}
-		}()
-
-		f()
+	_, _, err := hedgedhttp.NewClientAndStats(-time.Second, 0, nil)
+	if err == nil {
+		t.Fatalf("want err, got nil")
 	}
 
-	f(func() {
-		hedgedhttp.NewClientAndStats(-time.Second, 0, nil)
-	})
-	f(func() {
-		hedgedhttp.NewClientAndStats(time.Second, -1, nil)
-	})
-	f(func() {
-		hedgedhttp.NewClientAndStats(time.Second, 0, nil)
-	})
-	f(func() {
-		hedgedhttp.NewRoundTripper(time.Second, 0, nil)
-	})
+	_, _, err = hedgedhttp.NewClientAndStats(time.Second, -1, nil)
+	if err == nil {
+		t.Fatalf("want err, got nil")
+	}
+
+	_, _, err = hedgedhttp.NewClientAndStats(time.Second, 0, nil)
+	if err == nil {
+		t.Fatalf("want err, got nil")
+	}
+
+	_, err = hedgedhttp.NewRoundTripper(time.Second, 0, nil)
+	if err == nil {
+		t.Fatalf("want err, got nil")
+	}
 }
 
 func TestUpto(t *testing.T) {
@@ -56,7 +53,9 @@ func TestUpto(t *testing.T) {
 	}
 
 	const upto = 7
-	_, _ = hedgedhttp.NewClient(10*time.Millisecond, upto, nil).Do(req)
+	client, _ := hedgedhttp.NewClient(10*time.Millisecond, upto, nil)
+
+	_, _ = client.Do(req)
 
 	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
@@ -77,7 +76,11 @@ func TestUptoWithInstrumentation(t *testing.T) {
 	}
 
 	const upto = 7
-	client, metrics := hedgedhttp.NewClientAndStats(10*time.Millisecond, upto, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, upto, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 
 	_, _ = client.Do(req)
@@ -117,7 +120,11 @@ func TestNoTimeout(t *testing.T) {
 
 	const upto = 10
 
-	client, metrics := hedgedhttp.NewClientAndStats(0, upto, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(0, upto, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	_, _ = client.Do(req)
 
@@ -152,7 +159,11 @@ func TestFirstIsOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, metrics := hedgedhttp.NewClientAndStats(10*time.Millisecond, 10, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, 10, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -197,7 +208,11 @@ func TestBestResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, metrics := hedgedhttp.NewClientAndStats(10*time.Millisecond, 5, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, 5, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	_, err = client.Do(req)
 	if err != nil {
@@ -252,7 +267,11 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, metrics := hedgedhttp.NewClientAndStats(10*time.Millisecond, int(upto), nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, int(upto), nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -303,7 +322,11 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, metrics := hedgedhttp.NewClientAndStats(time.Millisecond, upto, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(time.Millisecond, upto, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	resp, err := client.Do(req)
 	if err == nil {
@@ -354,7 +377,11 @@ func TestHangAllExceptLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client, metrics := hedgedhttp.NewClientAndStats(10*time.Millisecond, upto, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, upto, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -400,7 +427,11 @@ func TestCancelByClient(t *testing.T) {
 	}
 
 	upto := 5
-	client, metrics := hedgedhttp.NewClientAndStats(10*time.Millisecond, upto, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, upto, nil)
+	if err != nil {
+		t.Fatalf("want nil, got %s", err)
+	}
+
 	checkAllMetricsAreZero(t, metrics)
 	resp, err := client.Do(req)
 	if err == nil {
@@ -449,7 +480,9 @@ func TestIsHedged(t *testing.T) {
 	}
 
 	const upto = 7
-	_, _ = hedgedhttp.NewRoundTripper(10*time.Millisecond, upto, rt).RoundTrip(req)
+	client, _ := hedgedhttp.NewRoundTripper(10*time.Millisecond, upto, rt)
+
+	_, _ = client.RoundTrip(req)
 
 	if gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)

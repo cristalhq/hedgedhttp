@@ -21,7 +21,10 @@ func ExampleHedgedClient() {
 	timeout := 10 * time.Millisecond
 	upto := 7
 	client := &http.Client{Timeout: time.Second}
-	hedged := hedgedhttp.NewClient(timeout, upto, client)
+	hedged, err := hedgedhttp.NewClient(timeout, upto, client)
+	if err != nil {
+		panic(err)
+	}
 
 	// will take `upto` requests, with a `timeout` delay between them
 	resp, err := hedged.Do(req)
@@ -43,7 +46,10 @@ func ExampleHedgedRoundTripper() {
 	timeout := 10 * time.Millisecond
 	upto := 7
 	transport := http.DefaultTransport
-	hedged, stats := hedgedhttp.NewRoundTripperAndStats(timeout, upto, transport)
+	hedged, stats, err := hedgedhttp.NewRoundTripperAndStats(timeout, upto, transport)
+	if err != nil {
+		panic(err)
+	}
 
 	// print stats periodically
 	go func() {
@@ -68,7 +74,10 @@ func ExampleInstrumented() {
 		Transport: http.DefaultTransport,
 	}
 
-	_ = hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+	_, err := hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+	if err != nil {
+		panic(err)
+	}
 }
 
 type InstrumentedTransport struct {
@@ -94,7 +103,10 @@ func ExampleRatelimit() {
 		Limiter:   &RandomRateLimiter{},
 	}
 
-	_ = hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+	_, err := hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // by example https://pkg.go.dev/golang.org/x/time/rate
@@ -133,7 +145,10 @@ func ExampleMultiTransport() {
 		Hedged: &http.Transport{MaxIdleConns: 30}, // just an example
 	}
 
-	_ = hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+	_, err := hedgedhttp.NewRoundTripper(time.Millisecond, 3, transport)
+	if err != nil {
+		panic(err)
+	}
 }
 
 type MultiTransport struct {
