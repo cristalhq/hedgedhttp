@@ -1,5 +1,7 @@
 name: build
 
+permissions: read-all
+
 on:
   push:
     branches: [main]
@@ -14,7 +16,6 @@ on:
 # See https://github.com/cristalhq/.github/.github/workflows
 jobs:
   build:
-    permissions: read-all
     uses: cristalhq/.github/.github/workflows/build.yml@e7c9d97e1ed043d608a701c651cf6c0820dc44f2 # v0.1.1
 
   release:
