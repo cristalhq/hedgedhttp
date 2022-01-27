@@ -13,11 +13,14 @@ on:
 
 # See https://github.com/cristalhq/.github/.github/workflows
 jobs:
-  test:
-    uses: cristalhq/.github/.github/workflows/test.yml@d310feb31f65450fb641e8fd98645b705080a913
+  build:
+    permissions: read-all
+    uses: cristalhq/.github/.github/workflows/build.yml@e7c9d97e1ed043d608a701c651cf6c0820dc44f2 # v0.1.1
 
   release:
     if: github.event_name == 'workflow_dispatch'
-    uses: cristalhq/.github/.github/workflows/release.yml@d310feb31f65450fb641e8fd98645b705080a913
+    uses: cristalhq/.github/.github/workflows/release.yml@e7c9d97e1ed043d608a701c651cf6c0820dc44f2 # v0.1.1
+    permissions: 
+      contents: write
     with:
       tag: ${{ github.event.input.tag }}
