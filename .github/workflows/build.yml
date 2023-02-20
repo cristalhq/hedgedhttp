@@ -16,16 +16,16 @@ on:
 # See https://github.com/cristalhq/.github/.github/workflows
 jobs:
   build:
-    uses: cristalhq/.github/.github/workflows/build.yml@454df049fccd7d81729b0c567b75662a2b77e97a # v0.1.3
+    uses: cristalhq/.github/.github/workflows/build.yml@081a5de7b7ef3d26d51cf1249ec3e17a669f7554 # v0.1.5
 
   codeql:
     permissions:
       security-events: write
-    uses: cristalhq/.github/.github/workflows/codeql.yml@454df049fccd7d81729b0c567b75662a2b77e97a # v0.1.3
+    uses: cristalhq/.github/.github/workflows/codeql.yml@081a5de7b7ef3d26d51cf1249ec3e17a669f7554 # v0.1.5
 
   release:
     if: github.event_name == 'workflow_dispatch'
-    uses: cristalhq/.github/.github/workflows/release.yml@454df049fccd7d81729b0c567b75662a2b77e97a # v0.1.3
+    uses: cristalhq/.github/.github/workflows/release.yml@081a5de7b7ef3d26d51cf1249ec3e17a669f7554 # v0.1.5
     permissions: 
       contents: write
     with:
