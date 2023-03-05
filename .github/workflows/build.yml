@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0' # run "At 00:00 on Sunday"
   workflow_dispatch:
     inputs:
       tag:
@@ -16,17 +19,15 @@ on:
 # See https://github.com/cristalhq/.github/.github/workflows
 jobs:
   build:
-    uses: cristalhq/.github/.github/workflows/build.yml@454df049fccd7d81729b0c567b75662a2b77e97a # v0.1.3
+    uses: cristalhq/.github/.github/workflows/build.yml@v0.2.2
 
-  codeql:
-    permissions:
-      security-events: write
-    uses: cristalhq/.github/.github/workflows/codeql.yml@454df049fccd7d81729b0c567b75662a2b77e97a # v0.1.3
+  vuln:
+    uses: cristalhq/.github/.github/workflows/vuln.yml@v0.2.2
 
   release:
     if: github.event_name == 'workflow_dispatch'
-    uses: cristalhq/.github/.github/workflows/release.yml@454df049fccd7d81729b0c567b75662a2b77e97a # v0.1.3
-    permissions: 
+    uses: cristalhq/.github/.github/workflows/release.yml@v0.2.2
+    permissions:
       contents: write
     with:
       tag: ${{ github.event.input.tag }}
