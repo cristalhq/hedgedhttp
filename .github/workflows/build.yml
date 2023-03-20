@@ -19,15 +19,7 @@ on:
 # See https://github.com/cristalhq/.github/.github/workflows
 jobs:
   build:
-    uses: cristalhq/.github/.github/workflows/build.yml@v0.2.2
+    uses: cristalhq/.github/.github/workflows/build.yml@v0.5.0
 
   vuln:
-    uses: cristalhq/.github/.github/workflows/vuln.yml@v0.2.2
-
-  release:
-    if: github.event_name == 'workflow_dispatch'
-    uses: cristalhq/.github/.github/workflows/release.yml@v0.2.2
-    permissions:
-      contents: write
-    with:
-      tag: ${{ github.event.input.tag }}
+    uses: cristalhq/.github/.github/workflows/vuln.yml@v0.5.0
