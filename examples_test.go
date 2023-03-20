@@ -11,7 +11,7 @@ import (
 	"github.com/cristalhq/hedgedhttp"
 )
 
-func ExampleHedgedClient() {
+func ExampleClient() {
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
 	if err != nil {
@@ -36,7 +36,7 @@ func ExampleHedgedClient() {
 	// and do something with resp
 }
 
-func ExampleHedgedRoundTripper() {
+func ExampleRoundTripper() {
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
 	if err != nil {
@@ -69,7 +69,7 @@ func ExampleHedgedRoundTripper() {
 	// and do something with resp
 }
 
-func ExampleInstrumented() {
+func Example_instrumented() {
 	transport := &InstrumentedTransport{
 		Transport: http.DefaultTransport,
 	}
@@ -97,7 +97,7 @@ func (t *InstrumentedTransport) RoundTrip(req *http.Request) (*http.Response, er
 	return resp, nil
 }
 
-func ExampleRatelimit() {
+func Example_ratelimited() {
 	transport := &RateLimitedHedgedTransport{
 		Transport: http.DefaultTransport,
 		Limiter:   &RandomRateLimiter{},
