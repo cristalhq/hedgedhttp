@@ -93,11 +93,10 @@ func BenchmarkHedgedRequest(b *testing.B) {
 			for i := 0; i < bm.concurrency; i++ {
 				go func() {
 					for i := 0; i < b.N/bm.concurrency; i++ {
-						resp, errRes := hedgedTarget.RoundTrip(req)
-						if errRes != nil {
+						_, err := hedgedTarget.RoundTrip(req)
+						if err != nil {
 							atomic.AddUint64(&errors, 1)
 						}
-						resp.Body.Close()
 					}
 					wg.Done()
 				}()
