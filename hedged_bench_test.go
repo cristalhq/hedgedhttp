@@ -64,7 +64,7 @@ func BenchmarkHedgedRequest(b *testing.B) {
 				},
 			}
 
-			var errors = uint64(0)
+			errors := uint64(0)
 			var snapshot atomic.Value
 
 			hedgedTarget, metrics, err := hedgedhttp.NewRoundTripperAndStats(10*time.Nanosecond, 10, target)
@@ -83,7 +83,7 @@ func BenchmarkHedgedRequest(b *testing.B) {
 					snapshot.Store(&currentSnapshot)
 				}
 			}()
-			req, err := http.NewRequest("GET", "", http.NoBody)
+			req, err := http.NewRequest(http.MethodGet, "", http.NoBody)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -93,10 +93,11 @@ func BenchmarkHedgedRequest(b *testing.B) {
 			for i := 0; i < bm.concurrency; i++ {
 				go func() {
 					for i := 0; i < b.N/bm.concurrency; i++ {
-						_, errRes := hedgedTarget.RoundTrip(req)
+						resp, errRes := hedgedTarget.RoundTrip(req)
 						if errRes != nil {
 							atomic.AddUint64(&errors, 1)
 						}
+						resp.Body.Close()
 					}
 					wg.Done()
 				}()

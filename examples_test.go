@@ -34,6 +34,8 @@ func ExampleClient() {
 	defer resp.Body.Close()
 
 	// and do something with resp
+
+	// Output:
 }
 
 func ExampleRoundTripper() {
@@ -67,6 +69,8 @@ func ExampleRoundTripper() {
 	defer resp.Body.Close()
 
 	// and do something with resp
+
+	// Output:
 }
 
 func Example_instrumented() {
@@ -78,6 +82,8 @@ func Example_instrumented() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Output:
 }
 
 type InstrumentedTransport struct {
@@ -107,6 +113,8 @@ func Example_ratelimited() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Output:
 }
 
 // by example https://pkg.go.dev/golang.org/x/time/rate
@@ -129,7 +137,7 @@ func (t *RateLimitedHedgedTransport) RoundTrip(r *http.Request) (*http.Response,
 	return t.Transport.RoundTrip(r)
 }
 
-// Just for the example
+// Just for the example.
 type RandomRateLimiter struct{}
 
 func (r *RandomRateLimiter) Wait(ctx context.Context) error {
@@ -149,6 +157,8 @@ func ExampleMultiTransport() {
 	if err != nil {
 		panic(err)
 	}
+
+	// Output:
 }
 
 type MultiTransport struct {
