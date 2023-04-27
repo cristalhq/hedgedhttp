@@ -46,15 +46,22 @@ func TestUpto(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	const upto = 7
-	client, _ := hedgedhttp.NewClient(10*time.Millisecond, upto, nil)
+	client, err := hedgedhttp.NewClient(10*time.Millisecond, upto, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, _ = client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
 
 	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
@@ -69,7 +76,7 @@ func TestUptoWithInstrumentation(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +89,12 @@ func TestUptoWithInstrumentation(t *testing.T) {
 
 	checkAllMetricsAreZero(t, metrics)
 
-	_, _ = client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
 	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
 	}
@@ -112,7 +124,7 @@ func TestNoTimeout(t *testing.T) {
 		time.Sleep(sleep)
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +137,11 @@ func TestNoTimeout(t *testing.T) {
 	}
 
 	checkAllMetricsAreZero(t, metrics)
-	_, _ = client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
 
 	if gotRequests := atomic.LoadInt64(&gotRequests); gotRequests < 1 || gotRequests > upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
@@ -150,10 +166,10 @@ func TestNoTimeout(t *testing.T) {
 func TestFirstIsOK(t *testing.T) {
 	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
+		w.Write([]byte("ok"))
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +219,7 @@ func TestBestResponse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,10 +229,12 @@ func TestBestResponse(t *testing.T) {
 	}
 
 	checkAllMetricsAreZero(t, metrics)
-	_, err = client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
+
 	passed := time.Since(start)
 
 	if float64(passed) > float64(shortest)*2.5 {
@@ -258,10 +276,10 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = conn.Close() // emulate error by closing connection on client side
+		conn.Close() // emulate error by closing connection on client side
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +294,8 @@ func TestGetSuccessEvenWithErrorsPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Unexpected resp status code: %+v", resp.StatusCode)
 	}
@@ -313,10 +333,10 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = conn.Close() // emulate error by closing connection on client side
+		conn.Close() // emulate error by closing connection on client side
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +391,7 @@ func TestHangAllExceptLast(t *testing.T) {
 		<-blockCh
 	})
 
-	req, err := http.NewRequest("GET", url, http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,6 +406,8 @@ func TestHangAllExceptLast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Unexpected resp status code: %+v", resp.StatusCode)
 	}
@@ -420,7 +442,7 @@ func TestCancelByClient(t *testing.T) {
 		cancel()
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,6 +458,7 @@ func TestCancelByClient(t *testing.T) {
 	if err == nil {
 		t.Fatal(err)
 	}
+
 	if resp != nil {
 		t.Fatalf("Unexpected resp: %+v", resp)
 	}
@@ -473,15 +496,20 @@ func TestIsHedged(t *testing.T) {
 		return nil, errors.New("just an error")
 	})
 
-	req, err := http.NewRequest("GET", "http://no-matter-what", http.NoBody)
+	req, err := http.NewRequest(http.MethodGet, "http://no-matter-what", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	const upto = 7
-	client, _ := hedgedhttp.NewRoundTripper(10*time.Millisecond, upto, rt)
+	client, err := hedgedhttp.NewRoundTripper(10*time.Millisecond, upto, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, _ = client.RoundTrip(req)
+	if _, err := client.RoundTrip(req); err == nil {
+		t.Fatal(err)
+	}
 
 	if gotRequests != upto {
 		t.Fatalf("want %v, got %v", upto, gotRequests)
@@ -494,36 +522,39 @@ func (t testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t(req)
 }
 
-func checkAllMetricsAreZero(t *testing.T, metrics *hedgedhttp.Stats) {
-	expectExactMetricsAndSnapshot(t, metrics, hedgedhttp.StatsSnapshot{})
+func checkAllMetricsAreZero(tb testing.TB, metrics *hedgedhttp.Stats) {
+	tb.Helper()
+	expectExactMetricsAndSnapshot(tb, metrics, hedgedhttp.StatsSnapshot{})
 }
 
-func expectExactMetricsAndSnapshot(t *testing.T, metrics *hedgedhttp.Stats, snapshot hedgedhttp.StatsSnapshot) {
+func expectExactMetricsAndSnapshot(tb testing.TB, metrics *hedgedhttp.Stats, snapshot hedgedhttp.StatsSnapshot) {
+	tb.Helper()
 	if metrics == nil {
-		t.Fatalf("Metrics object can't be nil")
+		tb.Fatalf("Metrics object can't be nil")
 	}
 	if requestedRoundTrips := metrics.RequestedRoundTrips(); requestedRoundTrips != snapshot.RequestedRoundTrips {
-		t.Fatalf("Unnexpected requestedRoundTrips: %+v; expected: %+v", requestedRoundTrips, snapshot.RequestedRoundTrips)
+		tb.Fatalf("Unnexpected requestedRoundTrips: %+v; expected: %+v", requestedRoundTrips, snapshot.RequestedRoundTrips)
 	}
 	if actualRoundTrips := metrics.ActualRoundTrips(); actualRoundTrips != snapshot.ActualRoundTrips {
-		t.Fatalf("Unnexpected actualRoundTrips: %+v; expected: %+v", actualRoundTrips, snapshot.ActualRoundTrips)
+		tb.Fatalf("Unnexpected actualRoundTrips: %+v; expected: %+v", actualRoundTrips, snapshot.ActualRoundTrips)
 	}
 	if failedRoundTrips := metrics.FailedRoundTrips(); failedRoundTrips != snapshot.FailedRoundTrips {
-		t.Fatalf("Unnexpected failedRoundTrips: %+v; expected: %+v", failedRoundTrips, snapshot.FailedRoundTrips)
+		tb.Fatalf("Unnexpected failedRoundTrips: %+v; expected: %+v", failedRoundTrips, snapshot.FailedRoundTrips)
 	}
 	if canceledByUserRoundTrips := metrics.CanceledByUserRoundTrips(); canceledByUserRoundTrips != snapshot.CanceledByUserRoundTrips {
-		t.Fatalf("Unnexpected canceledByUserRoundTrips: %+v; expected: %+v", canceledByUserRoundTrips, snapshot.CanceledByUserRoundTrips)
+		tb.Fatalf("Unnexpected canceledByUserRoundTrips: %+v; expected: %+v", canceledByUserRoundTrips, snapshot.CanceledByUserRoundTrips)
 	}
 	if canceledSubRequests := metrics.CanceledSubRequests(); canceledSubRequests != snapshot.CanceledSubRequests {
-		t.Fatalf("Unnexpected canceledSubRequests: %+v; expected: %+v", canceledSubRequests, snapshot.CanceledSubRequests)
+		tb.Fatalf("Unnexpected canceledSubRequests: %+v; expected: %+v", canceledSubRequests, snapshot.CanceledSubRequests)
 	}
 	if currentSnapshot := metrics.Snapshot(); currentSnapshot != snapshot {
-		t.Fatalf("Unnexpected currentSnapshot: %+v; expected: %+v", currentSnapshot, snapshot)
+		tb.Fatalf("Unnexpected currentSnapshot: %+v; expected: %+v", currentSnapshot, snapshot)
 	}
 }
 
-func testServerURL(t *testing.T, h func(http.ResponseWriter, *http.Request)) string {
+func testServerURL(tb testing.TB, h func(http.ResponseWriter, *http.Request)) string {
+	tb.Helper()
 	server := httptest.NewServer(http.HandlerFunc(h))
-	t.Cleanup(server.Close)
+	tb.Cleanup(server.Close)
 	return server.URL
 }
