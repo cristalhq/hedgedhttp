@@ -82,7 +82,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultIdx := -1
 	cancels := make([]func(), ht.upto)
 
-	defer func() {
+	defer runInPool(func() {
 		go func() {
 			for i, cancel := range cancels {
 				if i != resultIdx && cancel != nil {
@@ -91,7 +91,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 				}
 			}
 		}()
-	}()
+	})
 
 	for sent := 0; len(errOverall.Errors) < ht.upto; sent++ {
 		if sent < ht.upto {
@@ -99,7 +99,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			subReq, cancel := reqWithCtx(req, mainCtx, idx != 0)
 			cancels[idx] = cancel
 
-			go func() {
+			runInPool(func() {
 				ht.metrics.actualRoundTripsInc()
 				resp, err := ht.rt.RoundTrip(subReq)
 				if err != nil {
@@ -108,7 +108,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 				} else {
 					resultCh <- indexedResp{idx, resp}
 				}
-			}()
+			})
 		}
 
 		// all request sent - effectively disabling timeout between requests
@@ -178,6 +178,35 @@ type hedgedRequest struct{}
 func IsHedgedRequest(r *http.Request) bool {
 	val := r.Context().Value(hedgedRequest{})
 	return val != nil
+}
+
+var taskQueue = make(chan func())
+
+func runInPool(task func()) {
+	select {
+	case taskQueue <- task:
+		// submitted, everything is ok
+
+	default:
+		go func() {
+			// do the given task
+			task()
+
+			const cleanupDuration = 10 * time.Second
+			cleanupTicker := time.NewTicker(cleanupDuration)
+			defer cleanupTicker.Stop()
+
+			for {
+				select {
+				case t := <-taskQueue:
+					t()
+					cleanupTicker.Reset(cleanupDuration)
+				case <-cleanupTicker.C:
+					return
+				}
+			}
+		}()
+	}
 }
 
 // MultiError is an error type to track multiple errors. This is used to

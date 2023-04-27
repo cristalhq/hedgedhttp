@@ -52,7 +52,7 @@ func TestUpto(t *testing.T) {
 	}
 
 	const upto = 7
-	client, err := hedgedhttp.NewClient(10*time.Millisecond, upto, nil)
+	client, _, err := hedgedhttp.NewClient(10*time.Millisecond, upto, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
