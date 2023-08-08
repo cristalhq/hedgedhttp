@@ -23,7 +23,7 @@ Thanks to [Bohdan Storozhuk](https://github.com/storozhukbm) for the review and 
 * Optimized for speed.
 * Clean and tested code.
 * Supports `http.Client` and `http.RoundTripper`.
-* Dependency-free.
+* Supports rate-limiting.
 
 ## Install
 
