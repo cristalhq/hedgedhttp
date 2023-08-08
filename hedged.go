@@ -8,9 +8,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 const infiniteTimeout = 30 * 24 * time.Hour // domain specific infinite
+
+var ErrTooManyHedgeRequests = errors.New("too many hedged requests")
 
 // NewClient returns a new http.Client which implements hedged requests pattern.
 // And Stats object that can be queried to obtain client's metrics.
@@ -122,6 +126,8 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		case mainCtx.Err() != nil:
 			ht.metrics.canceledByUserRoundTripsInc()
 			return nil, mainCtx.Err()
+		case errors.Is(err, ErrTooManyHedgeRequests):
+			ht.metrics.rateLimitedRoundTripsInc()
 		case err != nil:
 			errOverall.Errors = append(errOverall.Errors, err)
 		}
@@ -129,6 +135,27 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 	// all request have returned errors
 	return nil, errOverall
+}
+
+type LimitedHedgingRoundTripper struct {
+	next    http.RoundTripper
+	limiter *rate.Limiter
+}
+
+func NewLimitedRoundTripper(max int, next http.RoundTripper) *LimitedHedgingRoundTripper {
+	return &LimitedHedgingRoundTripper{
+		next:    next,
+		limiter: rate.NewLimiter(rate.Limit(max), max),
+	}
+}
+
+func (rt *LimitedHedgingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if IsHedgedRequest(req) {
+		if !rt.limiter.Allow() {
+			return nil, ErrTooManyHedgeRequests
+		}
+	}
+	return rt.next.RoundTrip(req)
 }
 
 func waitResult(ctx context.Context, resultCh <-chan indexedResp, errorCh <-chan error, timeout time.Duration) (indexedResp, error) {

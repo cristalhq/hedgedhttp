@@ -479,6 +479,48 @@ func TestCancelByClient(t *testing.T) {
 	}
 }
 
+func TestRateLimit(t *testing.T) {
+	var gotRequests int64
+
+	const maxPerSec = 1
+	const upto = 20
+	const hedgeTimeout = time.Millisecond * 100
+	const delay = time.Millisecond * 200
+
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&gotRequests, 1)
+		time.Sleep(delay)
+	})
+
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cli := &http.Client{
+		Transport: hedgedhttp.NewLimitedRoundTripper(maxPerSec, http.DefaultTransport),
+		Timeout:   time.Second * 10,
+	}
+
+	client, st, err := hedgedhttp.NewClient(hedgeTimeout, upto, cli)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// We can send up to 20 hedged requests, but due to the rate-limiter only the initial request and the first hedged request
+	// are allowed through, and all other hedges are failed.
+	const expectedRateLimits = upto - 2
+	if limited := st.RateLimitedRoundTrips(); limited != expectedRateLimits {
+		t.Fatalf("expected %v requests to be rate-limited, got %v", expectedRateLimits, limited)
+	}
+}
+
 func TestIsHedged(t *testing.T) {
 	var gotRequests int
 

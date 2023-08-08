@@ -17,6 +17,7 @@ type Stats struct {
 	actualRoundTrips         atomicCounter
 	failedRoundTrips         atomicCounter
 	canceledByUserRoundTrips atomicCounter
+	rateLimitedRoundTrips    atomicCounter
 	canceledSubRequests      atomicCounter
 	_                        cacheLine
 }
@@ -25,6 +26,7 @@ func (s *Stats) requestedRoundTripsInc()      { atomic.AddUint64(&s.requestedRou
 func (s *Stats) actualRoundTripsInc()         { atomic.AddUint64(&s.actualRoundTrips.count, 1) }
 func (s *Stats) failedRoundTripsInc()         { atomic.AddUint64(&s.failedRoundTrips.count, 1) }
 func (s *Stats) canceledByUserRoundTripsInc() { atomic.AddUint64(&s.canceledByUserRoundTrips.count, 1) }
+func (s *Stats) rateLimitedRoundTripsInc()    { atomic.AddUint64(&s.rateLimitedRoundTrips.count, 1) }
 func (s *Stats) canceledSubRequestsInc()      { atomic.AddUint64(&s.canceledSubRequests.count, 1) }
 
 // RequestedRoundTrips returns count of requests that were requested by client.
@@ -47,6 +49,11 @@ func (s *Stats) CanceledByUserRoundTrips() uint64 {
 	return atomic.LoadUint64(&s.canceledByUserRoundTrips.count)
 }
 
+// RateLimitedRoundTrips returns count of requests that were prevented from being sent due to a per-second rate limit.
+func (s *Stats) RateLimitedRoundTrips() uint64 {
+	return atomic.LoadUint64(&s.rateLimitedRoundTrips.count)
+}
+
 // CanceledSubRequests returns count of hedged sub-requests that were canceled by transport.
 func (s *Stats) CanceledSubRequests() uint64 {
 	return atomic.LoadUint64(&s.canceledSubRequests.count)
@@ -58,6 +65,7 @@ type StatsSnapshot struct {
 	ActualRoundTrips         uint64 // count of requests that were actually sent
 	FailedRoundTrips         uint64 // count of requests that failed
 	CanceledByUserRoundTrips uint64 // count of requests that were canceled by user, using request context
+	RateLimitedRoundTrips    uint64 // count of requests that were prevented from being sent due to a per-second rate limit
 	CanceledSubRequests      uint64 // count of hedged sub-requests that were canceled by transport
 }
 
@@ -68,6 +76,7 @@ func (s *Stats) Snapshot() StatsSnapshot {
 		ActualRoundTrips:         s.ActualRoundTrips(),
 		FailedRoundTrips:         s.FailedRoundTrips(),
 		CanceledByUserRoundTrips: s.CanceledByUserRoundTrips(),
+		RateLimitedRoundTrips:    s.RateLimitedRoundTrips(),
 		CanceledSubRequests:      s.CanceledSubRequests(),
 	}
 }
