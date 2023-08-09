@@ -217,13 +217,11 @@ func TestFirstIsOK(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	mustOk(t, err)
 	mustEqual(t, string(body), "ok")
-	wantEqualMetrics(t, metrics, hedgedhttp.StatsSnapshot{
-		RequestedRoundTrips:      1,
-		ActualRoundTrips:         1,
-		FailedRoundTrips:         0,
-		CanceledByUserRoundTrips: 0,
-		CanceledSubRequests:      0,
-	})
+	mustEqual(t, metrics.RequestedRoundTrips(), uint64(1))
+	mustEqual(t, metrics.ActualRoundTrips(), uint64(1))
+	mustEqual(t, metrics.FailedRoundTrips(), uint64(0))
+	mustEqual(t, metrics.CanceledByUserRoundTrips(), uint64(0))
+	mustEqual(t, metrics.CanceledSubRequests(), uint64(0))
 }
 
 func TestBestResponse(t *testing.T) {
@@ -489,21 +487,13 @@ func (t testRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func wantZeroMetrics(tb testing.TB, metrics *hedgedhttp.Stats) {
 	tb.Helper()
-	wantEqualMetrics(tb, metrics, hedgedhttp.StatsSnapshot{})
-}
-
-func wantEqualMetrics(tb testing.TB, metrics *hedgedhttp.Stats, snapshot hedgedhttp.StatsSnapshot) {
-	tb.Helper()
-	if metrics == nil {
-		tb.Fatalf("Metrics object can't be nil")
-	}
-
-	mustEqual(tb, metrics.Snapshot(), snapshot)
-	mustEqual(tb, metrics.RequestedRoundTrips(), snapshot.RequestedRoundTrips)
-	mustEqual(tb, metrics.ActualRoundTrips(), snapshot.ActualRoundTrips)
-	mustEqual(tb, metrics.FailedRoundTrips(), snapshot.FailedRoundTrips)
-	mustEqual(tb, metrics.CanceledByUserRoundTrips(), snapshot.CanceledByUserRoundTrips)
-	mustEqual(tb, metrics.CanceledSubRequests(), snapshot.CanceledSubRequests)
+	mustEqual(tb, metrics.RequestedRoundTrips(), uint64(0))
+	mustEqual(tb, metrics.ActualRoundTrips(), uint64(0))
+	mustEqual(tb, metrics.FailedRoundTrips(), uint64(0))
+	mustEqual(tb, metrics.OriginalRequestWins(), uint64(0))
+	mustEqual(tb, metrics.HedgedRequestWins(), uint64(0))
+	mustEqual(tb, metrics.CanceledByUserRoundTrips(), uint64(0))
+	mustEqual(tb, metrics.CanceledSubRequests(), uint64(0))
 }
 
 func testServerURL(tb testing.TB, h func(http.ResponseWriter, *http.Request)) string {
