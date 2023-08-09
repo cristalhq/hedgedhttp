@@ -3,7 +3,6 @@ package hedgedhttp_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -388,13 +387,34 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	_, err = client.Do(newGetReq(url))
 	mustFail(t, err)
 
-	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto)
-	mustTrue(t, strings.Contains(err.Error(), wantErrStr))
+	mustTrue(t, strings.Contains(err.Error(), "EOF"))
 	mustEqual(t, metrics.RequestedRoundTrips(), uint64(1))
 	mustEqual(t, metrics.ActualRoundTrips(), uint64(upto))
 	mustEqual(t, metrics.FailedRoundTrips(), uint64(upto))
 	mustEqual(t, metrics.CanceledByUserRoundTrips(), uint64(0))
 	mustTrue(t, metrics.CanceledSubRequests() <= upto)
+	errs, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("Unexpected multi-error got %T", err)
+	}
+	if got := len(errs.Unwrap()); got != 4 {
+		t.Fatalf("Unexpected 4 errors got %+v", got)
+	}
+	if requestedRoundTrips := metrics.RequestedRoundTrips(); requestedRoundTrips != 1 {
+		t.Fatalf("Unnexpected requestedRoundTrips: %v", requestedRoundTrips)
+	}
+	if actualRoundTrips := metrics.ActualRoundTrips(); actualRoundTrips != upto {
+		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
+	}
+	if failedRoundTrips := metrics.FailedRoundTrips(); failedRoundTrips != upto {
+		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
+	}
+	if canceledByUserRoundTrips := metrics.CanceledByUserRoundTrips(); canceledByUserRoundTrips != 0 {
+		t.Fatalf("Unnexpected canceledByUserRoundTrips: %v", canceledByUserRoundTrips)
+	}
+	if canceledSubRequests := metrics.CanceledSubRequests(); canceledSubRequests > upto {
+		t.Fatalf("Unnexpected canceledSubRequests: %v", canceledSubRequests)
+	}
 }
 
 func TestHangAllExceptLast(t *testing.T) {
