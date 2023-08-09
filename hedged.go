@@ -140,6 +140,11 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		switch {
 		case resp.Resp != nil:
 			resultIdx = resp.Index
+			if resultIdx == 0 {
+				ht.metrics.originalRequestWinsInc()
+			} else {
+				ht.metrics.hedgedRequestWinsInc()
+			}
 			return resp.Resp, nil
 		case mainCtx.Err() != nil:
 			ht.metrics.canceledByUserRoundTripsInc()
