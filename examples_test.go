@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"time"
@@ -57,7 +58,7 @@ func ExampleRoundTripper() {
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			fmt.Printf("stats: %+v\n", stats)
+			fmt.Fprintf(io.Discard, "all requests: %d\n", stats.ActualRoundTrips())
 		}
 	}()
 
