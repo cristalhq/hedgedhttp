@@ -39,7 +39,8 @@ func ExampleClient() {
 }
 
 func ExampleRoundTripper() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
 	if err != nil {
 		panic(err)
@@ -55,7 +56,7 @@ func ExampleRoundTripper() {
 
 	// print stats periodically
 	go func() {
-		for {
+		for ctx.Err() == nil {
 			time.Sleep(time.Second)
 			fmt.Printf("all requests: %d\n", stats.ActualRoundTrips())
 		}
