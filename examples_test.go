@@ -57,7 +57,7 @@ func ExampleRoundTripper() {
 	go func() {
 		for {
 			time.Sleep(time.Second)
-			fmt.Printf("stats: %+v\n", stats)
+			fmt.Printf("all requests: %d\n", stats.ActualRoundTrips())
 		}
 	}()
 
