@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"time"
@@ -39,8 +40,7 @@ func ExampleClient() {
 }
 
 func ExampleRoundTripper() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
 	if err != nil {
 		panic(err)
@@ -56,9 +56,9 @@ func ExampleRoundTripper() {
 
 	// print stats periodically
 	go func() {
-		for ctx.Err() == nil {
+		for {
 			time.Sleep(time.Second)
-			fmt.Printf("all requests: %d\n", stats.ActualRoundTrips())
+			fmt.Fprintf(io.Discard, "all requests: %d\n", stats.ActualRoundTrips())
 		}
 	}()
 
