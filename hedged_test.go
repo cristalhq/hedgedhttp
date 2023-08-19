@@ -339,7 +339,7 @@ func TestHedgedResponseWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, metrics, err := hedgedhttp.NewClientAndStats(10*time.Millisecond, 5, nil)
+	client, metrics, err := hedgedhttp.NewClientAndStats(5*time.Millisecond, 5, nil)
 	if err != nil {
 		t.Fatalf("want nil, got %s", err)
 	}
@@ -363,10 +363,10 @@ func TestHedgedResponseWins(t *testing.T) {
 		t.Fatalf("Unnexpected actualRoundTrips: %v", actualRoundTrips)
 	}
 	if originalRequestWins := metrics.OriginalRequestWins(); originalRequestWins != 0 {
-		t.Fatalf("Unnexpected actualRoundTrips: %v", originalRequestWins)
+		t.Fatalf("Unnexpected originalRequestWins: %v", originalRequestWins)
 	}
 	if hedgedRequestWins := metrics.HedgedRequestWins(); hedgedRequestWins != 1 {
-		t.Fatalf("Unnexpected actualRoundTrips: %v", hedgedRequestWins)
+		t.Fatalf("Unnexpected hedgedRequestWins: %v", hedgedRequestWins)
 	}
 	if failedRoundTrips := metrics.FailedRoundTrips(); failedRoundTrips != 0 {
 		t.Fatalf("Unnexpected failedRoundTrips: %v", failedRoundTrips)
