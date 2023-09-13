@@ -22,10 +22,10 @@ func TestValidateInput(t *testing.T) {
 	_, _, err = hedgedhttp.NewClientAndStats(time.Second, -1, nil)
 	mustFail(t, err)
 
-	_, _, err = hedgedhttp.NewClientAndStats(time.Second, 0, nil)
+	_, _, err = hedgedhttp.NewClientAndStats(time.Second, -1, nil)
 	mustFail(t, err)
 
-	_, err = hedgedhttp.NewRoundTripper(time.Second, 0, nil)
+	_, err = hedgedhttp.NewRoundTripper(time.Second, -1, nil)
 	mustFail(t, err)
 }
 
