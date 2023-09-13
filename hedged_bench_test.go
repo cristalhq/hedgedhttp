@@ -68,9 +68,7 @@ func BenchmarkHedgedRequest(b *testing.B) {
 			var snapshot atomic.Value
 
 			hedgedTarget, metrics, err := hedgedhttp.NewRoundTripperAndStats(10*time.Nanosecond, 10, target)
-			if err != nil {
-				b.Fatalf("want nil, got %s", err)
-			}
+			mustOk(b, err)
 
 			initialSnapshot := metrics.Snapshot()
 			snapshot.Store(&initialSnapshot)
@@ -83,10 +81,9 @@ func BenchmarkHedgedRequest(b *testing.B) {
 					snapshot.Store(&currentSnapshot)
 				}
 			}()
-			req, err := http.NewRequest(http.MethodGet, "", http.NoBody)
-			if err != nil {
-				b.Fatal(err)
-			}
+
+			req := newGetReq("whatever")
+			mustOk(b, err)
 
 			var wg sync.WaitGroup
 			wg.Add(bm.concurrency)
