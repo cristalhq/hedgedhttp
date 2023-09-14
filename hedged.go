@@ -158,10 +158,10 @@ func NewRoundTripperAndStats(timeout time.Duration, upto int, rt http.RoundTripp
 }
 
 type hedgedTransport struct {
-	next    NextFn
 	rt      http.RoundTripper
 	timeout time.Duration
 	upto    int
+	next    NextFn
 	metrics *Stats
 }
 
