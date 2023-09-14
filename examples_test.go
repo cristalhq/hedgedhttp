@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/cristalhq/hedgedhttp"
@@ -35,6 +36,31 @@ func ExampleClient() {
 	defer resp.Body.Close()
 
 	// and do something with resp
+
+	// Output:
+}
+
+func Example_configNext() {
+	rt := &observableRoundTripper{
+		rt: http.DefaultTransport,
+	}
+
+	cfg := hedgedhttp.Config{
+		Transport: rt,
+		Upto:      3,
+		Delay:     50 * time.Millisecond,
+		Next: func() (upto int, delay time.Duration) {
+			return 3, rt.MaxLatency()
+		},
+	}
+	client, err := hedgedhttp.New(cfg)
+	if err != nil {
+		panic(err)
+	}
+
+	// or client.Do
+	resp, err := client.RoundTrip(&http.Request{})
+	_ = resp
 
 	// Output:
 }
@@ -172,4 +198,32 @@ func (t *MultiTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.Hedged.RoundTrip(req)
 	}
 	return t.First.RoundTrip(req)
+}
+
+type observableRoundTripper struct {
+	rt         http.RoundTripper
+	maxLatency atomic.Uint64
+}
+
+func (ort *observableRoundTripper) MaxLatency() time.Duration {
+	return time.Duration(ort.maxLatency.Load())
+}
+
+func (ort *observableRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	start := time.Now()
+	resp, err := ort.rt.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	took := uint64(time.Since(start).Nanoseconds())
+	for {
+		max := ort.maxLatency.Load()
+		if max >= took {
+			return resp, err
+		}
+		if ort.maxLatency.CompareAndSwap(max, took) {
+			return resp, err
+		}
+	}
 }
