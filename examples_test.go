@@ -15,7 +15,7 @@ import (
 
 func ExampleClient() {
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://cristalhq.dev", http.NoBody)
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +67,7 @@ func Example_configNext() {
 
 func ExampleRoundTripper() {
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://google.com", http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://cristalhq.dev", http.NoBody)
 	if err != nil {
 		panic(err)
 	}

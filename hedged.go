@@ -172,6 +172,12 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if ht.next != nil {
 		upto, timeout = ht.next()
 	}
+
+	// no hedged requests, just a regular one.
+	if upto == 0 {
+		return ht.rt.RoundTrip(req)
+	}
+
 	errOverall := &MultiError{}
 	resultCh := make(chan indexedResp, upto)
 	errorCh := make(chan error, upto)
