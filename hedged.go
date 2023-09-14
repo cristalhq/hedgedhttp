@@ -36,7 +36,7 @@ type Config struct {
 	Next NextFn
 }
 
-// NextFn represents a function that is called for each HTTP request.
+// NextFn represents a function that is called for each HTTP request for retrieving hedging options.
 type NextFn func() (upto int, delay time.Duration)
 
 // New returns a new Client for the given config.
@@ -70,7 +70,7 @@ func New(cfg Config) (*Client, error) {
 	return c, nil
 }
 
-// Stats returns stastics for the given client, see [Stats] methods.
+// Stats returns statistics for the given client, see [Stats] methods.
 func (c *Client) Stats() *Stats {
 	return c.stats
 }
