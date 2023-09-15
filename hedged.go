@@ -177,6 +177,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	if upto <= 0 {
 		return ht.rt.RoundTrip(req)
 	}
+	// rollback to default timeout.
 	if timeout < 0 {
 		timeout = ht.timeout
 	}
