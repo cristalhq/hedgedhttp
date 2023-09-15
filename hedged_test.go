@@ -46,6 +46,66 @@ func TestClient(t *testing.T) {
 	mustTrue(t, took >= handlerSleep && took < (handlerSleep+10*time.Millisecond))
 }
 
+func TestClientBadNextUpto(t *testing.T) {
+	const handlerSleep = 100 * time.Millisecond
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(handlerSleep)
+	})
+
+	cfg := hedgedhttp.Config{
+		Transport: http.DefaultTransport,
+		Upto:      2,
+		Delay:     50 * time.Millisecond,
+		Next: func() (upto int, delay time.Duration) {
+			return -1, 10 * time.Millisecond
+		},
+	}
+	client, err := hedgedhttp.New(cfg)
+	mustOk(t, err)
+
+	start := time.Now()
+	resp, err := client.Do(newGetReq(url))
+	took := time.Since(start)
+	mustOk(t, err)
+	defer resp.Body.Close()
+	mustTrue(t, resp != nil)
+	mustEqual(t, resp.StatusCode, http.StatusOK)
+
+	stats := client.Stats()
+	mustEqual(t, stats.ActualRoundTrips(), uint64(0))
+	mustTrue(t, took >= handlerSleep && took < (handlerSleep+10*time.Millisecond))
+}
+
+func TestClientBadNextDelay(t *testing.T) {
+	const handlerSleep = 100 * time.Millisecond
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(handlerSleep)
+	})
+
+	cfg := hedgedhttp.Config{
+		Transport: http.DefaultTransport,
+		Upto:      2,
+		Delay:     150 * time.Millisecond,
+		Next: func() (upto int, delay time.Duration) {
+			return 2, -10 * time.Millisecond
+		},
+	}
+	client, err := hedgedhttp.New(cfg)
+	mustOk(t, err)
+
+	start := time.Now()
+	resp, err := client.Do(newGetReq(url))
+	took := time.Since(start)
+	mustOk(t, err)
+	defer resp.Body.Close()
+	mustTrue(t, resp != nil)
+	mustEqual(t, resp.StatusCode, http.StatusOK)
+
+	stats := client.Stats()
+	mustEqual(t, stats.ActualRoundTrips(), uint64(1))
+	mustTrue(t, took >= handlerSleep && took < (handlerSleep+10*time.Millisecond))
+}
+
 func TestValidateInput(t *testing.T) {
 	var err error
 	_, err = hedgedhttp.New(hedgedhttp.Config{
