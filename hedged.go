@@ -174,8 +174,12 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	// no hedged requests, just a regular one.
-	if upto == 0 {
+	if upto <= 0 {
 		return ht.rt.RoundTrip(req)
+	}
+	// rollback to default timeout.
+	if timeout < 0 {
+		timeout = ht.timeout
 	}
 
 	errOverall := &MultiError{}
