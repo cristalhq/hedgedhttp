@@ -15,17 +15,59 @@ import (
 	"github.com/cristalhq/hedgedhttp"
 )
 
+func TestClient(t *testing.T) {
+	const handlerSleep = 100 * time.Millisecond
+	url := testServerURL(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(handlerSleep)
+	})
+
+	cfg := hedgedhttp.Config{
+		Transport: http.DefaultTransport,
+		Upto:      3,
+		Delay:     50 * time.Millisecond,
+		Next: func() (upto int, delay time.Duration) {
+			return 5, 10 * time.Millisecond
+		},
+	}
+	client, err := hedgedhttp.New(cfg)
+	mustOk(t, err)
+
+	start := time.Now()
+	resp, err := client.Do(newGetReq(url))
+	took := time.Since(start)
+	mustOk(t, err)
+	defer resp.Body.Close()
+	mustTrue(t, resp != nil)
+	mustEqual(t, resp.StatusCode, http.StatusOK)
+
+	stats := client.Stats()
+	mustEqual(t, stats.ActualRoundTrips(), uint64(5))
+	mustEqual(t, stats.OriginalRequestWins(), uint64(1))
+	mustTrue(t, took >= handlerSleep && took < (handlerSleep+10*time.Millisecond))
+}
+
 func TestValidateInput(t *testing.T) {
-	_, _, err := hedgedhttp.NewClientAndStats(-time.Second, 0, nil)
+	var err error
+	_, err = hedgedhttp.New(hedgedhttp.Config{
+		Delay: -time.Second,
+	})
+	mustFail(t, err)
+
+	_, err = hedgedhttp.New(hedgedhttp.Config{
+		Upto: -1,
+	})
+	mustFail(t, err)
+
+	_, _, err = hedgedhttp.NewClientAndStats(-time.Second, 0, nil)
 	mustFail(t, err)
 
 	_, _, err = hedgedhttp.NewClientAndStats(time.Second, -1, nil)
 	mustFail(t, err)
 
-	_, _, err = hedgedhttp.NewClientAndStats(time.Second, 0, nil)
+	_, _, err = hedgedhttp.NewClientAndStats(time.Second, -1, nil)
 	mustFail(t, err)
 
-	_, err = hedgedhttp.NewRoundTripper(time.Second, 0, nil)
+	_, err = hedgedhttp.NewRoundTripper(time.Second, -1, nil)
 	mustFail(t, err)
 }
 
