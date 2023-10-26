@@ -3,7 +3,6 @@ package hedgedhttp_test
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -381,20 +380,25 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	})
 
 	const upto = 5
-	client, metrics, err := hedgedhttp.NewClientAndStats(time.Millisecond, upto, nil)
+	client, metrics, err := hedgedhttp.NewRoundTripperAndStats(time.Millisecond, upto, nil)
 	mustOk(t, err)
 
 	wantZeroMetrics(t, metrics)
-	_, err = client.Do(newGetReq(url))
+	_, err = client.RoundTrip(newGetReq(url))
 	mustFail(t, err)
 
-	wantErrStr := fmt.Sprintf(`%d errors occurred:`, upto)
-	mustTrue(t, strings.Contains(err.Error(), wantErrStr))
+	mustTrue(t, strings.Contains(err.Error(), "EOF"))
 	mustEqual(t, metrics.RequestedRoundTrips(), uint64(1))
 	mustEqual(t, metrics.ActualRoundTrips(), uint64(upto))
 	mustEqual(t, metrics.FailedRoundTrips(), uint64(upto))
 	mustEqual(t, metrics.CanceledByUserRoundTrips(), uint64(0))
 	mustTrue(t, metrics.CanceledSubRequests() <= upto)
+
+	errs, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("Unexpected multi-error got %T", err)
+	}
+	mustEqual(t, len(errs.Unwrap()), upto)
 }
 
 func TestHangAllExceptLast(t *testing.T) {

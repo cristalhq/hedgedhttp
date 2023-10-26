@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
@@ -182,7 +181,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		timeout = ht.timeout
 	}
 
-	errOverall := &MultiError{}
+	errOverall := []error{}
 	resultCh := make(chan indexedResp, upto)
 	errorCh := make(chan error, upto)
 
@@ -200,7 +199,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	})
 
-	for sent := 0; len(errOverall.Errors) < upto; sent++ {
+	for sent := 0; len(errOverall) < upto; sent++ {
 		if sent < upto {
 			idx := sent
 			subReq, cancel := reqWithCtx(req, mainCtx, idx != 0)
@@ -237,12 +236,12 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			ht.metrics.canceledByUserRoundTripsInc()
 			return nil, mainCtx.Err()
 		case err != nil:
-			errOverall.Errors = append(errOverall.Errors, err)
+			errOverall = append(errOverall, err)
 		}
 	}
 
 	// all request have returned errors
-	return nil, errOverall
+	return nil, errors.Join(errOverall...)
 }
 
 func waitResult(ctx context.Context, resultCh <-chan indexedResp, errorCh <-chan error, timeout time.Duration) (indexedResp, error) {
@@ -319,52 +318,6 @@ func runInPool(task func()) {
 			}
 		}()
 	}
-}
-
-// MultiError is an error type to track multiple errors. This is used to
-// accumulate errors in cases and return them as a single "error".
-// Inspired by https://github.com/hashicorp/go-multierror
-type MultiError struct {
-	Errors        []error
-	ErrorFormatFn ErrorFormatFunc
-}
-
-func (e *MultiError) Error() string {
-	fn := e.ErrorFormatFn
-	if fn == nil {
-		fn = listFormatFunc
-	}
-	return fn(e.Errors)
-}
-
-func (e *MultiError) String() string {
-	return fmt.Sprintf("*%#v", e.Errors)
-}
-
-// ErrorOrNil returns an error if there are some.
-func (e *MultiError) ErrorOrNil() error {
-	switch {
-	case e == nil || len(e.Errors) == 0:
-		return nil
-	default:
-		return e
-	}
-}
-
-// ErrorFormatFunc is called by MultiError to return the list of errors as a string.
-type ErrorFormatFunc func([]error) string
-
-func listFormatFunc(es []error) string {
-	if len(es) == 1 {
-		return fmt.Sprintf("1 error occurred:\n\t* %s\n\n", es[0])
-	}
-
-	points := make([]string, len(es))
-	for i, err := range es {
-		points[i] = fmt.Sprintf("* %s", err)
-	}
-
-	return fmt.Sprintf("%d errors occurred:\n\t%s\n\n", len(es), strings.Join(points, "\n\t"))
 }
 
 var timerPool = sync.Pool{New: func() interface{} {
