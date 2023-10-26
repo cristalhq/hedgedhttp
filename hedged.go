@@ -199,7 +199,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	})
 
-	for sent := 0; len(errOverall) < ht.upto; sent++ {
+	for sent := 0; len(errOverall) < upto; sent++ {
 		if sent < upto {
 			idx := sent
 			subReq, cancel := reqWithCtx(req, mainCtx, idx != 0)
