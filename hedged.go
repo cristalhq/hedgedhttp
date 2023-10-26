@@ -181,9 +181,9 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		timeout = ht.timeout
 	}
 
+	errOverall := []error{}
 	resultCh := make(chan indexedResp, upto)
 	errorCh := make(chan error, upto)
-	errOverall := []error{}
 
 	ht.metrics.requestedRoundTripsInc()
 
