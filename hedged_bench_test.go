@@ -70,14 +70,14 @@ func BenchmarkHedgedRequest(b *testing.B) {
 			hedgedTarget, metrics, err := hedgedhttp.NewRoundTripperAndStats(10*time.Nanosecond, 10, target)
 			mustOk(b, err)
 
-			initialSnapshot := metrics.Snapshot()
+			initialSnapshot := metrics.ActualRoundTrips()
 			snapshot.Store(&initialSnapshot)
 
 			go func() {
 				ticker := time.NewTicker(1 * time.Millisecond)
 				defer ticker.Stop()
 				for range ticker.C {
-					currentSnapshot := metrics.Snapshot()
+					currentSnapshot := metrics.ActualRoundTrips()
 					snapshot.Store(&currentSnapshot)
 				}
 			}()
@@ -100,7 +100,7 @@ func BenchmarkHedgedRequest(b *testing.B) {
 			}
 			wg.Wait()
 			if rand.Float32() < 0.001 {
-				fmt.Printf("Snapshot: %+v\n", snapshot.Load())
+				b.Logf("Snapshot: %+v\n", snapshot.Load())
 			}
 		})
 	}
