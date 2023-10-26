@@ -398,7 +398,7 @@ func TestGetFailureAfterAllRetries(t *testing.T) {
 	if !ok {
 		t.Fatalf("Unexpected multi-error got %T", err)
 	}
-	mustEqual(t, errs.Unwrap(), upto)
+	mustEqual(t, len(errs.Unwrap()), upto)
 }
 
 func TestHangAllExceptLast(t *testing.T) {
