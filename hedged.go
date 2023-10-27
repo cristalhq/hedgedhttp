@@ -190,14 +190,16 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	resultIdx := -1
 	cancels := make([]func(), upto)
 
-	defer runInPool(func() {
-		for i, cancel := range cancels {
-			if i != resultIdx && cancel != nil {
-				ht.metrics.canceledSubRequestsInc()
-				cancel()
+	defer func() {
+		go func() {
+			for i, cancel := range cancels {
+				if i != resultIdx && cancel != nil {
+					ht.metrics.canceledSubRequestsInc()
+					cancel()
+				}
 			}
-		}
-	})
+		}()
+	}()
 
 	for sent := 0; len(errOverall) < upto; sent++ {
 		if sent < upto {
@@ -205,7 +207,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			subReq, cancel := reqWithCtx(req, mainCtx, idx != 0)
 			cancels[idx] = cancel
 
-			runInPool(func() {
+			go func() {
 				ht.metrics.actualRoundTripsInc()
 				resp, err := ht.rt.RoundTrip(subReq)
 				if err != nil {
@@ -214,7 +216,7 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 				} else {
 					resultCh <- indexedResp{idx, resp}
 				}
-			})
+			}()
 		}
 
 		// all request sent - effectively disabling timeout between requests
@@ -289,35 +291,6 @@ type hedgedRequest struct{}
 func IsHedgedRequest(r *http.Request) bool {
 	val := r.Context().Value(hedgedRequest{})
 	return val != nil
-}
-
-var taskQueue = make(chan func())
-
-func runInPool(task func()) {
-	select {
-	case taskQueue <- task:
-		// submitted, everything is ok
-
-	default:
-		go func() {
-			// do the given task
-			task()
-
-			const cleanupDuration = 10 * time.Second
-			cleanupTicker := time.NewTicker(cleanupDuration)
-			defer cleanupTicker.Stop()
-
-			for {
-				select {
-				case t := <-taskQueue:
-					t()
-					cleanupTicker.Reset(cleanupDuration)
-				case <-cleanupTicker.C:
-					return
-				}
-			}
-		}()
-	}
 }
 
 var timerPool = sync.Pool{New: func() interface{} {
