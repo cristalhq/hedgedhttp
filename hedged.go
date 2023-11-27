@@ -33,6 +33,8 @@ type Config struct {
 	// Next returns the upto and delay for each HTTP that will be hedged.
 	// Default is nil which results in (Upto, Delay) result.
 	Next NextFn
+
+	_ struct{} // enforce explicit field names.
 }
 
 // NextFn represents a function that is called for each HTTP request for retrieving hedging options.
