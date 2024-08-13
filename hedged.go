@@ -27,7 +27,7 @@ type Config struct {
 	// Default is zero which means no hedged requests will be made.
 	Upto int
 
-	// Delay before 2 consequitive hedged requests.
+	// Delay before 2 consecutive hedged requests.
 	Delay time.Duration
 
 	// Next returns the upto and delay for each HTTP that will be hedged.
