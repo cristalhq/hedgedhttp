@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -430,6 +431,41 @@ func TestHangAllExceptLast(t *testing.T) {
 	mustEqual(t, metrics.FailedRoundTrips(), uint64(0))
 	mustEqual(t, metrics.CanceledByUserRoundTrips(), uint64(0))
 	mustTrue(t, metrics.CanceledSubRequests() < upto)
+}
+
+func TestMemoryFreedOnBodyClose(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	url := testServerURL(t, func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, "ok")
+	})
+
+	hedged, _ := hedgedhttp.NewRoundTripper(time.Second, 2, http.DefaultTransport)
+
+	type key struct{}
+	var finalized atomic.Int64
+	const n = 1000
+	for i := 0; i < n; i++ {
+		payload := new([1024]byte)
+		runtime.SetFinalizer(payload, func(*[1024]byte) { finalized.Add(1) })
+		ctx := context.WithValue(parent, key{}, payload)
+
+		req := newCtxGetReq(ctx, url)
+		resp, err := hedged.RoundTrip(req)
+		if err != nil {
+			panic(err)
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+
+	for i := 0; i < 5; i++ {
+		runtime.GC()
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	mustEqual(t, finalized.Load(), int64(n))
 }
 
 func TestCancelByClient(t *testing.T) {
