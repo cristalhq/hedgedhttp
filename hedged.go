@@ -38,17 +38,6 @@ type Config struct {
 	_ struct{} // enforce explicit field names.
 }
 
-type cancelOnClose struct {
-	cancel context.CancelFunc
-	io.ReadCloser
-}
-
-func (c *cancelOnClose) Close() error {
-	err := c.ReadCloser.Close()
-	c.cancel()
-	return err
-}
-
 // NextFn represents a function that is called for each HTTP request for retrieving hedging options.
 type NextFn func() (upto int, delay time.Duration)
 
@@ -245,11 +234,17 @@ func (ht *hedgedTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			} else {
 				ht.metrics.hedgedRequestWinsInc()
 			}
-			resp.Resp.Body = &cancelOnClose{ReadCloser: resp.Resp.Body, cancel: cancels[resultIdx]}
+
+			resp.Resp.Body = &bodyWithCancel{
+				ReadCloser: resp.Resp.Body,
+				cancel:     cancels[resultIdx],
+			}
 			return resp.Resp, nil
+
 		case mainCtx.Err() != nil:
 			ht.metrics.canceledByUserRoundTripsInc()
 			return nil, mainCtx.Err()
+
 		case err != nil:
 			errOverall = append(errOverall, err)
 		}
@@ -352,4 +347,15 @@ func returnTimer(timer *time.Timer) {
 	default:
 	}
 	timerPool.Put(timer)
+}
+
+type bodyWithCancel struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *bodyWithCancel) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
 }

@@ -434,28 +434,29 @@ func TestHangAllExceptLast(t *testing.T) {
 }
 
 func TestMemoryFreedOnBodyClose(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
+	parent, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	url := testServerURL(t, func(w http.ResponseWriter, _ *http.Request) {
 		io.WriteString(w, "ok")
 	})
 
-	hedged, _ := hedgedhttp.NewRoundTripper(time.Second, 2, http.DefaultTransport)
+	hedged, err := hedgedhttp.NewRoundTripper(time.Second, 2, http.DefaultTransport)
+	mustOk(t, err)
 
-	type key struct{}
+	type ctxKey struct{}
 	var finalized atomic.Int64
-	const n = 1000
-	for i := 0; i < n; i++ {
+
+	const calls = 1000
+	for i := 0; i < calls; i++ {
 		payload := new([1024]byte)
 		runtime.SetFinalizer(payload, func(*[1024]byte) { finalized.Add(1) })
-		ctx := context.WithValue(parent, key{}, payload)
+		ctx := context.WithValue(parent, ctxKey{}, payload)
 
 		req := newCtxGetReq(ctx, url)
 		resp, err := hedged.RoundTrip(req)
-		if err != nil {
-			panic(err)
-		}
+		mustOk(t, err)
+
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
@@ -465,7 +466,7 @@ func TestMemoryFreedOnBodyClose(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	mustEqual(t, finalized.Load(), int64(n))
+	mustEqual(t, finalized.Load(), int64(calls))
 }
 
 func TestCancelByClient(t *testing.T) {
